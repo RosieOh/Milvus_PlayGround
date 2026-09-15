@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# docker compose 가 생성
+volumes/
+
+# 데이터·임베딩 캐시 — 절대 커밋하지 않는다.
+# 디렉토리째 무시하면 clone 시 경로가 사라지므로 .gitkeep 만 예외로 둔다.
+data/*
+!data/.gitkeep
+cache/*
+!cache/.gitkeep
+*.npy
+*.jsonl
+*.jsonl.gz
+
+# 벤치 산출물
+results/*
+!results/.gitkeep
+reports/*
+!reports/.gitkeep

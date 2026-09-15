@@ -1,0 +1,7 @@
+# 커밋 아이덴티티 정규화.
+# 좌측이 정본, 우측이 과거 커밋에 남은 표기. git log/shortlog 가 이 표를 따른다.
+
+RosieOh <dhxogns920@gmail.com>
+RosieOh <dhxogns920@gmail.com> <20172207@gm.hannam.ac.kr>
+RosieOh <dhxogns920@gmail.com> <soundmind8842@gmail.com>
+RosieOh <dhxogns920@gmail.com> RosieOh <dhxogns920@gmail.com>
