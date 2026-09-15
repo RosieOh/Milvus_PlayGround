@@ -1,0 +1,45 @@
+# VecShift 설정. 코드에 상수를 박지 않는다 — 스윕 재현성의 전제.
+
+milvus:
+  uri: "http://localhost:19530"
+  token: ""
+  db_name: "default"
+  timeout_s: 30
+
+dataset:
+  name: "miracl-ko"
+  hf_corpus: "miracl/miracl-corpus"
+  hf_corpus_subset: "ko"
+  hf_qrels: "miracl/miracl"
+  hf_qrels_subset: "ko"
+  # 티어. 0 = 전량(~1.4M). 디스크가 아니라 임베딩 시간이 제약이다(D-004).
+  tiers:
+    dev: 50000
+    main: 500000
+    full: 0
+  active_tier: "dev"
+
+embedding:
+  # v1 = 현행(베이스라인), v2 = 교체 대상. 차원이 달라야 재색인이 현실적이다.
+  v1:
+    id: "intfloat/multilingual-e5-small"
+    dim: 384
+    metric: "COSINE"
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+  v2:
+    id: "intfloat/multilingual-e5-base"
+    dim: 768
+    metric: "COSINE"
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+  batch_size: 64
+  normalize: true
+
+collection:
+  alias: "docs_live"
+  prefix: "miracl_ko"
+
+goldenset:
+  size: 500
+  top_k: 10
