@@ -1,11 +1,10 @@
 # Milvus 3.0.1 Standalone
 # 출처: https://github.com/milvus-io/milvus/releases/download/v3.0.1/milvus-standalone-docker-compose.yml
 # 공식 파일을 vendoring 한다. 수정 시 DECISIONS.md 에 기록한다.
-#   [수정됨] minio 이미지 레지스트리 변경 — D-008 참고. 그 외는 무수정.
+#   [수정됨] minio 이미지 레지스트리 변경 — D-008 참고.
+#   [수정됨] obsolete `version` 속성 제거 — D-009 참고. 그 외는 무수정.
 #   - MQ_TYPE=woodpecker : 3.0 의 zero-disk WAL. Pulsar/Kafka 불필요.
 #   - 19530 gRPC / 9091 metrics·healthz / 9001 MinIO console
-
-version: '3.5'
 
 services:
   etcd:

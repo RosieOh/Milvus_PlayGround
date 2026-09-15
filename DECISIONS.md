@@ -154,6 +154,31 @@
 - **교훈** — 업스트림 공식 파일도 외부 레지스트리 변경에는 무력하다. "공식이니까 된다"는
   가정이 첫 번째로 깨진 지점이었다.
 
+---
+
+## D-009 · obsolete `version` 속성 제거 (공식 compose 패치 2)
+
+- **증상** — `make up` / `make ps` 를 돌릴 때마다 경고가 앞에 붙는다.
+
+  ```
+  level=warning msg="docker-compose.yml: the attribute `version` is obsolete,
+  it will be ignored, please remove it to avoid potential confusion"
+  ```
+
+- **원인** — Milvus 3.0.1 공식 compose 가 Compose v1 스펙의 `version: '3.5'` 를
+  아직 달고 있다. Compose v2 는 이 필드를 읽지 않는다.
+- **결정** — 제거한다. D-003 "무수정 vendoring" 의 두 번째 예외이며, compose 헤더
+  주석에도 남겼다.
+- **근거** — 동작에는 영향이 없다. 그러나 이 저장소의 약속은 **두 줄로 재현된다**는
+  것이고, 재현 경로의 첫 출력이 경고면 그 약속이 약해진다. 읽는 사람이 "이게 문제인가"를
+  판단하는 데 쓰는 시간이 곧 재현 비용이다.
+- **대안과 기각 사유**
+  - *경고를 그대로 둔다* — 무해하지만 매 실행마다 노이즈가 남는다.
+  - *`--log-level error` 로 숨긴다* — 원인이 아니라 증상을 가린다. 다른 경고까지 같이 묻힌다.
+- **재검토 조건** — 업스트림이 같은 수정을 반영하면 vendoring 을 다시 무수정으로 되돌린다.
+
+---
+
 ## 막힌 기록
 
 > 해결되지 않은 것, 우회한 것, 나중의 나를 위한 메모. 비어 있으면 아직 아무것도
