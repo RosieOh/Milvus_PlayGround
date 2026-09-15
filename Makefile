@@ -3,7 +3,7 @@ SHELL := /bin/bash
 PY := .venv/bin/python
 VECSHIFT := .venv/bin/vecshift
 
-.PHONY: help venv up down logs ps doctor smoke clean nuke
+.PHONY: help venv up down logs ps doctor smoke iobench clean nuke
 
 help:  ## 사용 가능한 타깃
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -36,6 +36,9 @@ doctor:  ## 환경 점검
 
 smoke:  ## 왕복 검증
 	$(VECSHIFT) smoke
+
+iobench:  ## 컨테이너 내부 랜덤 I/O 측정 (외장 bind vs 내장 volume)
+	bash scripts/iobench.sh
 
 clean:  ## 파이썬 캐시 정리
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
