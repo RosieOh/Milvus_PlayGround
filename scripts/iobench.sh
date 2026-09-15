@@ -32,41 +32,55 @@ PATTERNS=(
 )
 
 # ── 가드레일 ────────────────────────────────────────────────────────────────
-# named volume 은 Docker Desktop VM 디스크 이미지 안에 들어가고, 그 이미지는
-# 대개 **내장 디스크**에 있다. 외장에 여유가 아무리 많아도 상관없다.
+# 두 대상은 서로 다른 물리 디스크를 쓴다. 각각 따로 확인한다.
+#   bind-external   → 저장소가 놓인 외장 볼륨
+#   volume-internal → Docker Desktop VM 디스크 이미지가 놓인 디스크. 보통 **내장**이며,
+#                     외장에 여유가 아무리 많아도 상관없다.
 # 이 확인 없이 돌렸다가 내장을 0바이트까지 채우고 VM 을 read-only 로 만든 적이 있다
-# (D-010 · 「막힌 기록」 참고). 같은 사고를 재현하는 사람에게 넘기지 않는다.
+# (D-010 · D-011 · 「막힌 기록」 참고).
 size_to_gib() {  # 12G / 512M / 1024K → GiB 정수(올림)
-  local v="${1%[KkMmGgTt]}" unit="${1: -1}"
   python3 -c "
 import math,sys
-v=float('$v'); u='$unit'.upper()
-gib={'K':v/1048576,'M':v/1024,'G':v,'T':v*1024}.get(u, v/1073741824)
-print(math.ceil(gib))"
+raw=sys.argv[1]; unit=raw[-1].upper()
+v=float(raw[:-1]) if unit in 'KMGT' else float(raw)/1073741824
+print(math.ceil({'K':v/1048576,'M':v/1024,'G':v,'T':v*1024}.get(unit, v)))" "$1"
 }
+
+free_gib() { df -g "$1" 2>/dev/null | awk 'NR==2 {print $4}'; }
 
 NEED_GIB="$(size_to_gib "$SIZE")"
-MARGIN_GIB=3          # fio 파일 외에 VM 이 숨쉴 여유
-DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+MARGIN_GIB="${MARGIN_GIB:-3}"          # fio 파일 외에 파일시스템이 숨쉴 여유
+WANT_GIB=$((NEED_GIB + MARGIN_GIB))
 
-# Docker VM 이미지를 담고 있는 **호스트** 파일시스템의 여유를 본다.
-host_free_gib() {
-  local img_dir="$HOME/Library/Containers/com.docker.docker/Data"
-  local target="/System/Volumes/Data"
-  [ -d "$img_dir" ] && target="$img_dir"
-  df -g "$target" 2>/dev/null | awk 'NR==2 {print $4}'
+# Docker VM 디스크 이미지가 실제로 놓인 경로
+VM_IMAGE_DIR="$HOME/Library/Containers/com.docker.docker/Data"
+[ -d "$VM_IMAGE_DIR" ] || VM_IMAGE_DIR="/System/Volumes/Data"
+
+check() {  # $1=대상 이름  $2=확인할 경로  $3=추가 설명
+  local free; free="$(free_gib "$2")"
+  if [ -n "$free" ] && [ "$free" -lt "$WANT_GIB" ]; then
+    cat >&2 <<MSG
+  ! $1 건너뜀 — 여유 ${free} GiB < 필요 ${WANT_GIB} GiB (워킹셋 ${NEED_GIB} + 여유 ${MARGIN_GIB})
+    $3
+    → SIZE 를 줄일 것 (예: SIZE=2G make iobench)
+MSG
+    return 1
+  fi
+  return 0
 }
 
-HOST_FREE="$(host_free_gib)"
+SKIP_EXTERNAL=0
 SKIP_INTERNAL=0
-if [ -n "$HOST_FREE" ] && [ "$HOST_FREE" -lt "$((NEED_GIB + MARGIN_GIB))" ]; then
-  SKIP_INTERNAL=1
-  cat >&2 <<MSG
-  ! 내장 디스크 여유 ${HOST_FREE} GiB < 필요 $((NEED_GIB + MARGIN_GIB)) GiB (워킹셋 ${NEED_GIB} + 여유 ${MARGIN_GIB})
-    volume-internal 대상을 건너뛴다. named volume 은 내장의 Docker 디스크 이미지를 키우므로
-    강행하면 VM 파일시스템이 read-only 로 떨어진다.
-    → SIZE 를 줄이거나(SIZE=2G make iobench), Docker 디스크 이미지를 외장으로 옮길 것.
-MSG
+mkdir -p "$(dirname "$BIND_DIR")"
+check "bind-external" "$(dirname "$BIND_DIR")" \
+  "저장소가 놓인 볼륨이 부족하다." || SKIP_EXTERNAL=1
+check "volume-internal" "$VM_IMAGE_DIR" \
+  "named volume 은 내장의 Docker 디스크 이미지를 키운다. 강행하면 VM 이 read-only 로 떨어진다.
+    Docker 디스크 이미지를 외장으로 옮기는 것도 방법이다." || SKIP_INTERNAL=1
+
+if [ "$SKIP_EXTERNAL" -eq 1 ] && [ "$SKIP_INTERNAL" -eq 1 ]; then
+  echo "  두 대상 모두 공간이 부족하다. 중단한다." >&2
+  exit 1
 fi
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -95,13 +109,17 @@ run_one() {  # $1=대상 이름  $2=docker -v 인자  $3=패턴이름  $4=rw  $5
 echo "랜덤 I/O 측정 — ${RUNTIME}s × ${#PATTERNS[@]}패턴 × 2대상 (size=$SIZE, iodepth=$IODEPTH)" >&2
 for p in "${PATTERNS[@]}"; do
   IFS='|' read -r name rw bs <<< "$p"
-  run_one "bind-external"   "$BIND_DIR:/bench"    "$name" "$rw" "$bs"
+  if [ "$SKIP_EXTERNAL" -eq 0 ]; then
+    run_one "bind-external"   "$BIND_DIR:/bench"    "$name" "$rw" "$bs"
+  fi
   if [ "$SKIP_INTERNAL" -eq 0 ]; then
     run_one "volume-internal" "$VOLUME_NAME:/bench" "$name" "$rw" "$bs"
   fi
 done
 
 # 정리 — 벤치 파일은 남기지 않는다. JSON 만 results/ 에 남는다.
+# 주의 — rm 만으로는 공간이 즉시 돌아오지 않는다. Docker 의 VirtioFS 프로세스가
+# 삭제된 파일 핸들을 계속 붙들기 때문이다. df 가 안 줄면 Docker Desktop 을 재시작할 것.
 rm -rf "$BIND_DIR"
 if [ "$SKIP_INTERNAL" -eq 0 ]; then docker volume rm "$VOLUME_NAME" >/dev/null; fi
 
