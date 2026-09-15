@@ -36,6 +36,7 @@ make venv     # Python 3.12 가상환경 + 의존성
 make up       # Milvus 3.0.1 Standalone 기동 (healthz 대기 포함)
 make doctor   # 환경 점검
 make smoke    # 생성 → 삽입 → 검색 → 삭제 왕복 검증
+make iobench  # 저장 계층 랜덤 I/O 측정 (측정의 한계 3 참고)
 ```
 
 `make help` 로 전체 타깃을 볼 수 있다.
@@ -49,6 +50,7 @@ config/vecshift.yml   설정 단일 진입점 (코드에 상수를 박지 않는
 src/vecshift/         패키지 — config / client / cli
 docker-compose.yml    Milvus 3.0.1 공식 compose (vendoring, minio 레지스트리만 수정 — D-008)
 docs/vecshift-plan.html   기획서 — 문제 정의부터 4주 계획까지
+scripts/iobench.sh    컨테이너 내부 랜덤 I/O 측정 (make iobench)
 DECISIONS.md          선택의 근거와 막힌 기록
 ```
 
@@ -63,9 +65,16 @@ DECISIONS.md          선택의 근거와 막힌 기록
 2. **단일 노트북 벤치다.** 절대 수치는 의미가 약하다. 모든 결과는 *"동일 하드웨어·
    동일 데이터에서의 상대 비교"* 로만 서술한다. "3,200 QPS" 가 아니라 "같은 조건에서
    IVF 대비 2.3배" 가 이 저장소의 문장 형식이다.
-3. **저장 계층이 외장 볼륨 위에 있다.** Docker VirtioFS 오버헤드가 얹힌다.
-   자세한 측정값과 남은 리스크는 [DECISIONS.md](DECISIONS.md) D-004 참고.
-4. **recall 은 두 종류다.** 인덱스 품질(ANN recall)과 검색 품질(qrels 기준)을
+3. **저장 계층이 외장 USB 볼륨 위에 있고, 랜덤 I/O 가 느리다.** 순차는 내장 대비
+   읽기 2.1배 차이지만 **4k 랜덤 읽기는 8.6배** 차이다 (4,057 vs 34,945 IOPS).
+   ANN 그래프 탐색은 작은 블록을 흩뿌리는 패턴이라 정확히 이 손해를 본다.
+   인덱스 비교 수치를 절대값으로 읽으면 안 되는 가장 큰 이유다.
+   측정 방법과 전체 수치는 [DECISIONS.md](DECISIONS.md) D-010, 직접 재보려면
+   `make iobench`.
+4. **벤치 수치는 캐시를 벗어난 워킹셋에서만 의미가 있다.** 같은 장비에서 워킹셋을
+   512 MiB 로 잡으면 랜덤 읽기가 8배 부풀려진다 — `--direct=1` 을 줘도 그렇다.
+   게스트의 O_DIRECT 는 macOS 호스트 캐시를 막지 못한다. D-011 참고.
+5. **recall 은 두 종류다.** 인덱스 품질(ANN recall)과 검색 품질(qrels 기준)을
    섞어 읽으면 안 된다. D-007 참고.
 
 ---
