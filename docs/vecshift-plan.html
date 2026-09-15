@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VecShift</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+
+<style>
+:root{
+  --paper:#ECEEEA; --surface:#F8F9F6; --surface-2:#E2E6E0;
+  --ink:#161A17; --ink-2:#39413B; --muted:#66716A;
+  --line:#D2D8D0; --line-strong:#B7C0B6;
+  --lane-a:#2E6C7E; --lane-a-soft:#DCE9ED;
+  --lane-b:#5D4A8C; --lane-b-soft:#E5E0F1;
+  --ok:#3A6B49; --ok-soft:#DDE9E0;
+  --warn:#8A6414; --risk:#9B392C;
+  --f-disp:"Bricolage Grotesque","IBM Plex Sans KR",system-ui,sans-serif;
+  --f-sans:"IBM Plex Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --maxw:74ch;
+}
+:root:not([data-theme="light"]){ color-scheme:light dark; }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#111413; --surface:#181C19; --surface-2:#212722;
+    --ink:#E7EBE6; --ink-2:#C2CAC1; --muted:#8D998F;
+    --line:#2A312C; --line-strong:#3B443D;
+    --lane-a:#6BB3C6; --lane-a-soft:#15313A;
+    --lane-b:#A897DC; --lane-b-soft:#241E38;
+    --ok:#74BA8A; --ok-soft:#18301F;
+    --warn:#D8AC4E; --risk:#E5897A;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --paper:#111413; --surface:#181C19; --surface-2:#212722;
+  --ink:#E7EBE6; --ink-2:#C2CAC1; --muted:#8D998F;
+  --line:#2A312C; --line-strong:#3B443D;
+  --lane-a:#6BB3C6; --lane-a-soft:#15313A;
+  --lane-b:#A897DC; --lane-b-soft:#241E38;
+  --ok:#74BA8A; --ok-soft:#18301F;
+  --warn:#D8AC4E; --risk:#E5897A;
+}
+
+*{box-sizing:border-box}
+img{max-width:100%}
+[hidden]{display:none!important}
+body{
+  margin:0;
+  background:var(--paper); color:var(--ink);
+  font-family:var(--f-sans); font-size:15px; line-height:1.78;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--lane-a); text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--lane-a); outline-offset:2px; border-radius:2px}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important; animation:none!important} }
+
+/* ---------- shell ---------- */
+.shell{
+  display:grid; grid-template-columns:232px minmax(0,1fr);
+  gap:44px; max-width:1180px; margin:0 auto;
+  padding-inline:20px; padding-block:0 72px;
+}
+@media (max-width:920px){
+  .shell{grid-template-columns:minmax(0,1fr); gap:0; padding-inline:16px}
+}
+
+/* ---------- rail ---------- */
+.rail{
+  position:sticky; top:0; align-self:start;
+  max-height:100vh; overflow-y:auto;
+  padding-block:34px 24px;
+  display:flex; flex-direction:column; gap:26px;
+}
+@media (max-width:920px){
+  .rail{position:static; max-height:none; overflow:visible; padding-block:26px 0;
+        border-bottom:1px solid var(--line)}
+}
+.wordmark{
+  font-family:var(--f-disp); font-weight:800; font-size:30px;
+  letter-spacing:-.025em; line-height:1; color:var(--ink);
+}
+.wordmark em{font-style:normal; color:var(--lane-a)}
+.rail-sub{font-size:12.5px; line-height:1.6; color:var(--muted); margin-top:9px}
+
+.meta{display:grid; grid-template-columns:auto 1fr; gap:3px 14px; font-size:11.5px}
+.meta dt{font-family:var(--f-mono); font-size:10px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); padding-top:2px}
+.meta dd{margin:0; color:var(--ink-2); font-variant-numeric:tabular-nums}
+
+.toc{display:flex; flex-direction:column; gap:1px; border-left:1px solid var(--line)}
+@media (max-width:920px){ .toc{flex-direction:row; flex-wrap:wrap; gap:6px; border-left:0} }
+.toc a{
+  display:flex; gap:9px; align-items:baseline;
+  padding:3px 0 3px 13px; font-size:12.5px; color:var(--ink-2);
+  text-decoration:none; border-left:2px solid transparent; margin-left:-1px;
+}
+.toc a:hover{color:var(--lane-a); border-left-color:var(--lane-a)}
+@media (max-width:920px){
+  .toc a{border:1px solid var(--line); border-radius:999px; padding:2px 10px; margin:0;
+         background:var(--surface)}
+  .toc a:hover{border-color:var(--lane-a)}
+}
+.toc .n{font-family:var(--f-mono); font-size:10px; color:var(--muted)}
+
+.prog{border-top:1px solid var(--line); padding-top:16px}
+.prog-h{font-family:var(--f-mono); font-size:10px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); display:flex; justify-content:space-between}
+.prog-bar{height:5px; background:var(--surface-2); border-radius:3px; margin-top:9px; overflow:hidden}
+.prog-fill{height:100%; width:0%; background:var(--ok); border-radius:3px; transition:width .25s ease}
+.prog-note{font-size:11px; color:var(--muted); margin-top:7px; line-height:1.5}
+
+/* ---------- masthead ---------- */
+.doc{padding-block:34px 0; min-width:0}
+.masthead{border-bottom:2px solid var(--ink); padding-bottom:26px; margin-bottom:8px}
+.eyebrow{
+  font-family:var(--f-mono); font-size:10.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--lane-a); font-weight:600;
+}
+.masthead h1{
+  font-family:var(--f-sans); font-weight:700;
+  font-size:clamp(1.65rem,4vw,2.3rem); line-height:1.28; letter-spacing:-.02em;
+  margin:12px 0 0; text-wrap:balance; max-width:22ch;
+}
+.deck{font-size:16px; line-height:1.7; color:var(--ink-2); margin:16px 0 0; max-width:60ch}
+.stamp{
+  display:flex; flex-wrap:wrap; gap:8px; margin-top:20px;
+  font-family:var(--f-mono); font-size:10.5px;
+}
+.stamp span{
+  border:1px solid var(--line-strong); border-radius:999px; padding:2px 10px;
+  color:var(--ink-2); background:var(--surface);
+}
+.stamp .hot{border-color:var(--lane-a); color:var(--lane-a)}
+
+/* ---------- sections ---------- */
+section{padding-block:44px; border-bottom:1px solid var(--line); max-width:var(--maxw)}
+section:last-of-type{border-bottom:0}
+.s-head{display:flex; gap:14px; align-items:baseline; margin-bottom:6px}
+.s-num{
+  font-family:var(--f-disp); font-weight:700; font-size:15px;
+  color:var(--muted); font-variant-numeric:tabular-nums; flex:none;
+  padding-top:2px;
+}
+h2{font-size:1.3rem; font-weight:700; letter-spacing:-.015em; margin:0; text-wrap:balance}
+.s-lede{color:var(--ink-2); margin:0 0 22px 29px; font-size:14px}
+@media (max-width:560px){ .s-lede{margin-left:0} }
+h3{
+  font-size:.86rem; font-weight:600; margin:30px 0 10px;
+  font-family:var(--f-mono); letter-spacing:.06em; text-transform:uppercase;
+  color:var(--muted);
+}
+h3:first-of-type{margin-top:22px}
+p{margin:0 0 15px}
+ul,ol{margin:0 0 15px; padding-left:20px}
+li{margin-bottom:6px}
+li::marker{color:var(--muted)}
+strong{font-weight:600}
+code,.mono{font-family:var(--f-mono); font-size:.86em; background:var(--surface-2);
+  padding:1px 5px; border-radius:3px}
+
+/* ---------- callout ---------- */
+.note{
+  border-left:3px solid var(--lane-a); background:var(--surface);
+  padding:14px 18px; margin:20px 0; font-size:13.5px; line-height:1.7;
+}
+.note.warn{border-left-color:var(--warn)}
+.note b{font-family:var(--f-mono); font-size:10.5px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); display:block; margin-bottom:4px}
+
+/* ---------- tables ---------- */
+.scrollx{overflow-x:auto; margin:18px 0; max-width:100%}
+table{border-collapse:collapse; width:100%; font-size:13px; min-width:460px}
+th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+th{
+  font-family:var(--f-mono); font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--muted); font-weight:600; border-bottom:1px solid var(--line-strong);
+  white-space:nowrap;
+}
+td.num{font-family:var(--f-mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+
+.tag{
+  font-family:var(--f-mono); font-size:10px; padding:1px 7px; border-radius:3px;
+  white-space:nowrap; font-weight:500;
+}
+.tag.a{background:var(--lane-a-soft); color:var(--lane-a)}
+.tag.b{background:var(--lane-b-soft); color:var(--lane-b)}
+.tag.ok{background:var(--ok-soft); color:var(--ok)}
+
+/* ---------- scope columns ---------- */
+.scope{display:grid; grid-template-columns:1fr 1fr; gap:2px; margin:18px 0;
+  border:1px solid var(--line); background:var(--line)}
+@media (max-width:620px){ .scope{grid-template-columns:1fr} }
+.scope > div{background:var(--surface); padding:18px}
+.scope h4{
+  margin:0 0 12px; font-family:var(--f-mono); font-size:10.5px; letter-spacing:.09em;
+  text-transform:uppercase; font-weight:600;
+}
+.scope .in h4{color:var(--ok)}
+.scope .out h4{color:var(--risk)}
+.scope ul{margin:0; padding-left:17px; font-size:13px}
+.scope li{margin-bottom:8px; line-height:1.6}
+
+/* ---------- diagram ---------- */
+figure{margin:24px 0}
+.dg{width:100%; height:auto; max-width:100%; display:block}
+.dg-band-a{fill:var(--lane-a-soft)}
+.dg-band-b{fill:var(--lane-b-soft)}
+.dg-box{fill:var(--surface); stroke:var(--line-strong); stroke-width:1}
+.dg-box-a{fill:var(--surface); stroke:var(--lane-a); stroke-width:1.6}
+.dg-box-b{fill:var(--surface); stroke:var(--lane-b); stroke-width:1.6}
+.dg-box-g{fill:var(--surface); stroke:var(--ok); stroke-width:1.6}
+.dg-t{fill:var(--ink); font:600 12.5px var(--f-sans)}
+.dg-s{fill:var(--muted); font:400 10.5px var(--f-mono)}
+.dg-lane{fill:var(--muted); font:600 10px var(--f-mono); letter-spacing:.11em}
+.dg-e{fill:var(--ink-2); font:500 10px var(--f-mono)}
+.dg-ln{stroke:var(--line-strong); stroke-width:1.4; fill:none}
+.dg-ln-a{stroke:var(--lane-a); stroke-width:1.6; fill:none}
+.dg-ln-b{stroke:var(--lane-b); stroke-width:1.6; fill:none}
+.dg-ln-ok{stroke:var(--ok); stroke-width:1.6; fill:none}
+.dg-dash{stroke-dasharray:5 4}
+figcaption{font-size:12.5px; color:var(--muted); line-height:1.65; margin-top:12px;
+  padding-left:13px; border-left:2px solid var(--line-strong)}
+
+/* ---------- gantt ---------- */
+.gantt{
+  display:grid; grid-template-columns:190px repeat(4,1fr); gap:5px;
+  min-width:560px; font-size:12px; align-items:center;
+}
+.g-h{
+  font-family:var(--f-mono); font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--muted); padding-bottom:4px;
+}
+.g-l{color:var(--ink-2); font-size:12.5px; padding-right:10px; line-height:1.45}
+.g-c{height:24px; border-radius:3px; background:var(--surface-2)}
+.g-c.on-n{background:var(--line-strong)}
+.g-c.on-a{background:var(--lane-a)}
+.g-c.on-b{background:var(--lane-b)}
+.g-c.on-k{background:var(--ok)}
+
+/* ---------- checklist ---------- */
+.cl-group{margin-bottom:22px}
+.cl-group > h4{
+  margin:0 0 9px; font-family:var(--f-mono); font-size:10px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--muted); font-weight:600;
+  display:flex; align-items:center; gap:9px;
+}
+.cl-group > h4::after{content:""; flex:1; height:1px; background:var(--line)}
+.ck{
+  display:flex; gap:11px; align-items:flex-start; padding:8px 12px;
+  border:1px solid var(--line); border-radius:4px; background:var(--surface);
+  margin-bottom:5px; cursor:pointer; font-size:13.5px; line-height:1.55;
+}
+.ck:hover{border-color:var(--line-strong)}
+.ck input{position:absolute; opacity:0; width:0; height:0}
+.ck-box{
+  flex:none; width:15px; height:15px; margin-top:4px; border-radius:3px;
+  border:1.5px solid var(--line-strong); background:transparent;
+  display:grid; place-items:center;
+}
+.ck-box::after{content:"✓"; font-size:11px; line-height:1; color:var(--paper); opacity:0}
+.ck input:checked + .ck-box{background:var(--ok); border-color:var(--ok)}
+.ck input:checked + .ck-box::after{opacity:1}
+.ck input:checked ~ .ck-t{color:var(--muted); text-decoration:line-through;
+  text-decoration-color:var(--line-strong)}
+.ck input:focus-visible + .ck-box{outline:2px solid var(--lane-a); outline-offset:2px}
+.ck-t{color:var(--ink)}
+.ck-t .id{font-family:var(--f-mono); font-size:10.5px; color:var(--muted); margin-right:7px}
+.cl-status{font-size:11.5px; color:var(--muted); font-family:var(--f-mono); margin-top:14px}
+
+/* ---------- footer ---------- */
+footer{
+  max-width:var(--maxw); padding-top:32px; margin-top:8px;
+  border-top:1px solid var(--line); font-size:12px; color:var(--muted);
+  display:flex; flex-wrap:wrap; gap:10px 22px; justify-content:space-between;
+}
+footer .mono{background:none; padding:0}
+</style>
+</head>
+
+<body>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div>
+      <div class="wordmark">Vec<em>Shift</em></div>
+      <p class="rail-sub">Milvus 무중단 임베딩 재색인 &amp; 인덱스 튜닝 하네스</p>
+    </div>
+
+    <dl class="meta">
+      <dt>Doc</dt><dd>v0.1 · Draft</dd>
+      <dt>Date</dt><dd>2026-09-15</dd>
+      <dt>Span</dt><dd>4주 (W1–W4)</dd>
+      <dt>Target</dt><dd>Milvus 3.0.1</dd>
+    </dl>
+
+    <nav class="toc">
+      <a href="#s1"><span class="n">01</span>문제 정의</a>
+      <a href="#s2"><span class="n">02</span>목표와 비목표</a>
+      <a href="#s3"><span class="n">03</span>성공 기준</a>
+      <a href="#s4"><span class="n">04</span>시스템 설계</a>
+      <a href="#s5"><span class="n">05</span>기능 명세</a>
+      <a href="#s6"><span class="n">06</span>기술 스택</a>
+      <a href="#s7"><span class="n">07</span>실행 계획</a>
+      <a href="#s8"><span class="n">08</span>산출물</a>
+      <a href="#s9"><span class="n">09</span>리스크</a>
+      <a href="#s10"><span class="n">10</span>확장 로드맵</a>
+    </nav>
+
+    <div class="prog">
+      <div class="prog-h"><span>Progress</span><span id="progTxt">0 / 12</span></div>
+      <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+      <p class="prog-note" id="progNote">08 산출물 체크리스트와 연동됩니다.</p>
+    </div>
+  </aside>
+
+  <main class="doc">
+
+    <header class="masthead">
+      <div class="eyebrow">Side Project Plan</div>
+      <h1>임베딩 모델을 바꾸는 동안에도 검색은 멈추지 않는다</h1>
+      <p class="deck">
+        RAG 서비스에서 임베딩 모델 교체는 <strong>언젠가</strong>가 아니라 <strong>반드시</strong> 일어난다.
+        그리고 그 순간 전량 재색인이 필요하다. VecShift는 이 재색인을
+        다운타임 없이, 품질 회귀를 사전에 차단하면서, 실패 시 10초 안에 되돌릴 수 있게 만드는
+        운영 하네스다.
+      </p>
+      <div class="stamp">
+        <span class="hot">Milvus 3.0.1 Standalone</span>
+        <span>pymilvus 3.0.1</span>
+        <span>Python 3.12</span>
+        <span>Apache-2.0 OSS 공개 전제</span>
+      </div>
+    </header>
+
+    <!-- 01 -->
+    <section id="s1">
+      <div class="s-head"><span class="s-num">01</span><h2>문제 정의</h2></div>
+      <p class="s-lede">왜 이 문제를 고르는가.</p>
+
+      <h3>임베딩 교체는 상수다</h3>
+      <p>
+        더 나은 다국어 모델이 나오거나, 추론 비용을 줄여야 하거나, 차원을 1024에서 768로 낮춰
+        메모리를 확보해야 할 때 — 임베딩 모델은 바뀐다. 모델이 바뀌면
+        <strong>벡터 공간 자체가 달라지므로 기존 인덱스는 전부 무효</strong>가 된다.
+        부분 업데이트가 불가능하고, 전량 재계산과 재색인만이 답이다.
+      </p>
+
+      <h3>그런데 검색은 24/7 떠 있어야 한다</h3>
+      <p>현장에서 실제로 벌어지는 일은 대개 셋 중 하나다.</p>
+      <ul>
+        <li><strong>새벽 점검 창을 잡고 내린다</strong> — 다운타임이 발생하고, 데이터가 커질수록 창이 부족해진다.</li>
+        <li><strong>컬렉션 두 개를 수동으로 굴린다</strong> — 전환 시점에 유입된 쓰기가 유실되고, 되돌릴 절차가 없다.</li>
+        <li><strong>검증 없이 갈아끼운다</strong> — recall 회귀를 배포 <em>후</em> 사용자 불만으로 발견한다.</li>
+      </ul>
+
+      <div class="note">
+        <b>공백</b>
+        벡터 DB 문서도, LangChain·LlamaIndex 같은 프레임워크 문서도 "인덱스를 만드는 법"은
+        상세히 다루지만 <strong>"이미 서빙 중인 인덱스를 교체하는 법"</strong>에 대한 챕터는 없다.
+        한국어 자료는 사실상 전무하다. 이 공백이 이 프로젝트의 존재 이유다.
+      </div>
+
+      <h3>왜 Milvus인가</h3>
+      <p>
+        Milvus 3.0이 이 문제를 풀 재료를 최근에야 갖췄다. <span class="mono">Snapshot</span>(파일 복사
+        없는 시점 고정 뷰), <span class="mono">온라인 스키마 진화</span>(서빙 중 컬럼 추가·백필),
+        <span class="mono">alias</span>(무중단 전환 포인트), 그리고 스토리지-컴퓨트 분리 구조 덕분에
+        v2 빌드가 v1 서빙의 CPU·메모리를 잠식하지 않는다. 같은 일을 pgvector나 단일 프로세스형
+        엔진에서 하려면 훨씬 지저분해진다.
+      </p>
+    </section>
+
+    <!-- 02 -->
+    <section id="s2">
+      <div class="s-head"><span class="s-num">02</span><h2>목표와 비목표</h2></div>
+      <p class="s-lede">4주 안에 완주하기 위해, 안 할 것을 먼저 못 박는다.</p>
+
+      <div class="scope">
+        <div class="in">
+          <h4>In Scope</h4>
+          <ul>
+            <li><strong>인덱스 구성 탐색 자동화</strong> — 인덱스·양자화·파라미터·필터 비율을 축으로 스윕하고 recall/QPS/메모리 파레토 곡선을 뽑는다.</li>
+            <li><strong>무중단 재색인 파이프라인</strong> — 스냅샷 → 격리 빌드 → 쓰기 따라잡기 → 섀도우 검증 → alias 스왑 → 롤백.</li>
+            <li><strong>정량 게이트</strong> — 기준 미달이면 스왑을 <em>자동으로 거부</em>한다. 사람이 판단하지 않는다.</li>
+            <li><strong>재현 패키징</strong> — <span class="mono">docker compose up</span> 후 <span class="mono">make bench</span> / <span class="mono">make shift</span> 두 줄로 끝난다.</li>
+            <li><strong>관측성</strong> — Milvus Prometheus 메트릭 기반 Grafana 대시보드 1장.</li>
+          </ul>
+        </div>
+        <div class="out">
+          <h4>Out of Scope</h4>
+          <ul>
+            <li><strong>Distributed(K8s) 모드</strong> — Standalone까지만. 운영 복잡도가 4주를 삼킨다.</li>
+            <li><strong>프로덕션 SLA·멀티리전·HA</strong> — 검증 대상이 아니다.</li>
+            <li><strong>임베딩 모델 학습·파인튜닝</strong> — 공개 모델만 사용한다.</li>
+            <li><strong>Milvus 소스 포크·패치</strong> — 클라이언트 레이어에서만 푼다.</li>
+            <li><strong>웹 UI 대시보드</strong> — Grafana와 정적 리포트로 대체한다.</li>
+            <li><strong>RAG 애플리케이션 자체</strong> — 검색 계층까지. 생성은 다루지 않는다.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="note warn">
+        <b>스코프 규율</b>
+        W4는 <strong>코딩 금지 주간</strong>이다. 리포트·README·블로그만 쓴다.
+        사이드프로젝트가 포트폴리오가 되지 못하는 가장 흔한 원인은 기능 부족이 아니라
+        "설명이 없는 코드"로 끝나는 것이다.
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section id="s3">
+      <div class="s-head"><span class="s-num">03</span><h2>성공 기준</h2></div>
+      <p class="s-lede">전부 자동 측정 가능한 숫자로만 정의한다. 주관적 기준은 넣지 않는다.</p>
+
+      <div class="scrollx">
+        <table>
+          <thead>
+            <tr><th>지표</th><th>목표</th><th>측정 방법</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>재색인 중 다운타임</td>
+              <td class="num">0 s</td>
+              <td>부하 생성기가 전 구간 연속 질의, 5xx·타임아웃·빈 응답 카운트</td>
+            </tr>
+            <tr>
+              <td>재색인 중 p99 증가</td>
+              <td class="num">≤ +15 %</td>
+              <td>유휴 베이스라인 대비, 빌드 구간 전체의 p99</td>
+            </tr>
+            <tr>
+              <td>recall@10 회귀 차단</td>
+              <td class="num">−0.01 초과 시 중단</td>
+              <td>골든셋 500 질의, FLAT 브루트포스를 정답으로 사용</td>
+            </tr>
+            <tr>
+              <td>alias 스왑 소요</td>
+              <td class="num">≤ 5 s</td>
+              <td>스왑 명령 → 신규 결과 최초 관측까지</td>
+            </tr>
+            <tr>
+              <td>롤백 소요</td>
+              <td class="num">≤ 10 s</td>
+              <td>장애 판정 → v1 결과 복귀 확인까지</td>
+            </tr>
+            <tr>
+              <td>1.2 M 벡터 전량 재색인</td>
+              <td class="num">≤ 30 min</td>
+              <td>임베딩 캐시 적중 기준, 인덱스 빌드 완료까지</td>
+            </tr>
+            <tr>
+              <td>벤치 재현성</td>
+              <td class="num">CV ≤ 5 %</td>
+              <td>동일 설정 3회 반복 QPS의 변동계수</td>
+            </tr>
+            <tr>
+              <td>쓰기 유실</td>
+              <td class="num">0 건</td>
+              <td>전환 구간 삽입분을 v2에서 전수 조회</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <b>정직한 프레이밍</b>
+        노트북 단일 인스턴스 벤치라서 <strong>절대 수치는 의미가 약하다</strong>.
+        모든 결과는 "동일 하드웨어·동일 데이터에서의 상대 비교"로만 서술한다.
+        "3,200 QPS"가 아니라 "같은 조건에서 IVF 대비 2.3배"가 이 프로젝트의 문장 형식이다.
+      </div>
+    </section>
+
+    <!-- 04 -->
+    <section id="s4">
+      <div class="s-head"><span class="s-num">04</span><h2>시스템 설계</h2></div>
+      <p class="s-lede">v1 서빙 레인과 v2 빌드 레인을 물리적으로 분리하고, 게이트만이 둘을 잇는다.</p>
+
+      <figure>
+        <svg class="dg" viewBox="0 0 960 452" role="img"
+             aria-label="Client 질의는 Proxy의 alias를 통해 v1 컬렉션으로 100% 전달되고, 동시에 섀도우 트래픽이 v2로 미러링된다. v2는 소스 데이터를 재임베딩해 격리 빌드되며 v1의 스냅샷과 이중 쓰기 재생으로 따라잡는다. 두 컬렉션의 지표는 품질 게이트에서 비교되고, 통과한 경우에만 alias가 v2로 스왑된다.">
+          <defs>
+            <marker id="ah-n" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 z" style="fill:var(--line-strong)"/>
+            </marker>
+            <marker id="ah-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 z" style="fill:var(--lane-a)"/>
+            </marker>
+            <marker id="ah-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 z" style="fill:var(--lane-b)"/>
+            </marker>
+            <marker id="ah-k" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L8,4 L0,8 z" style="fill:var(--ok)"/>
+            </marker>
+          </defs>
+
+          <rect class="dg-band-a" x="8" y="40" width="944" height="120" rx="4"/>
+          <rect class="dg-band-b" x="8" y="264" width="944" height="152" rx="4"/>
+          <text class="dg-lane" x="16" y="60">SERVING LANE · 무중단 유지</text>
+          <text class="dg-lane" x="16" y="284">BUILD LANE · 격리 빌드</text>
+
+          <!-- feedback -->
+          <polyline class="dg-ln-ok" points="796,166 796,24 236,24 236,180" marker-end="url(#ah-k)"/>
+          <text class="dg-e" x="516" y="17" text-anchor="middle">PASS → alias 스왑 (v2 승격)   ·   FAIL → v2 폐기 + 리포트</text>
+
+          <!-- boxes -->
+          <rect class="dg-box" x="16" y="180" width="104" height="52" rx="4"/>
+          <text class="dg-t" x="68" y="202" text-anchor="middle">Client</text>
+          <text class="dg-s" x="68" y="218" text-anchor="middle">RAG 검색</text>
+
+          <rect class="dg-box" x="156" y="180" width="160" height="52" rx="4"/>
+          <text class="dg-t" x="236" y="201" text-anchor="middle">Proxy</text>
+          <text class="dg-s" x="236" y="218" text-anchor="middle">alias: docs_live</text>
+
+          <rect class="dg-box-a" x="396" y="64" width="208" height="72" rx="4"/>
+          <text class="dg-t" x="500" y="94" text-anchor="middle">Collection v1</text>
+          <text class="dg-s" x="500" y="114" text-anchor="middle">bge-m3 · 1024d · HNSW</text>
+
+          <rect class="dg-box-b" x="396" y="280" width="208" height="72" rx="4"/>
+          <text class="dg-t" x="500" y="310" text-anchor="middle">Collection v2</text>
+          <text class="dg-s" x="500" y="330" text-anchor="middle">new model · 후보 인덱스</text>
+
+          <rect class="dg-box" x="16" y="296" width="104" height="52" rx="4"/>
+          <text class="dg-t" x="68" y="318" text-anchor="middle">Source</text>
+          <text class="dg-s" x="68" y="334" text-anchor="middle">S3 / Parquet</text>
+
+          <rect class="dg-box" x="156" y="296" width="152" height="52" rx="4"/>
+          <text class="dg-t" x="232" y="318" text-anchor="middle">Re-embed</text>
+          <text class="dg-s" x="232" y="334" text-anchor="middle">batch + cache</text>
+
+          <rect class="dg-box-g" x="680" y="166" width="232" height="96" rx="4"/>
+          <text class="dg-t" x="796" y="196" text-anchor="middle">Quality Gate</text>
+          <text class="dg-s" x="796" y="216" text-anchor="middle">recall@10 ≥ base − 0.01</text>
+          <text class="dg-s" x="796" y="234" text-anchor="middle">p99 ≤ base × 1.15</text>
+
+          <!-- edges -->
+          <line class="dg-ln" x1="120" y1="206" x2="156" y2="206" marker-end="url(#ah-n)"/>
+          <text class="dg-e" x="138" y="198" text-anchor="middle">query</text>
+
+          <polyline class="dg-ln-a" points="316,196 348,196 348,100 396,100" marker-end="url(#ah-a)"/>
+          <text class="dg-e" x="356" y="150">search · 100%</text>
+
+          <polyline class="dg-ln-b dg-dash" points="316,216 364,216 364,300 396,300" marker-end="url(#ah-b)"/>
+          <text class="dg-e" x="372" y="262">shadow · mirror</text>
+
+          <line class="dg-ln" x1="120" y1="322" x2="156" y2="322" marker-end="url(#ah-n)"/>
+          <text class="dg-e" x="138" y="314" text-anchor="middle">read</text>
+
+          <line class="dg-ln-b" x1="308" y1="322" x2="396" y2="322" marker-end="url(#ah-b)"/>
+          <text class="dg-e" x="352" y="314" text-anchor="middle">insert · build</text>
+
+          <line class="dg-ln-b" x1="500" y1="136" x2="500" y2="280" marker-end="url(#ah-b)"/>
+          <text class="dg-e" x="512" y="196">snapshot(t₀)</text>
+          <text class="dg-e" x="512" y="212">+ dual-write 재생</text>
+
+          <polyline class="dg-ln-a" points="604,100 642,100 642,192 680,192" marker-end="url(#ah-a)"/>
+          <text class="dg-e" x="610" y="92">baseline</text>
+
+          <polyline class="dg-ln-b" points="604,316 642,316 642,238 680,238" marker-end="url(#ah-b)"/>
+          <text class="dg-e" x="610" y="332">candidate</text>
+
+          <!-- legend -->
+          <line class="dg-ln-a" x1="16" y1="434" x2="44" y2="434"/>
+          <text class="dg-s" x="50" y="438">v1 서빙 경로</text>
+          <line class="dg-ln-b" x1="190" y1="434" x2="218" y2="434"/>
+          <text class="dg-s" x="224" y="438">v2 빌드 · 후보 경로</text>
+          <line class="dg-ln-b dg-dash" x1="400" y1="434" x2="428" y2="434"/>
+          <text class="dg-s" x="434" y="438">섀도우 트래픽</text>
+          <line class="dg-ln-ok" x1="580" y1="434" x2="608" y2="434"/>
+          <text class="dg-s" x="614" y="438">게이트 통과 → 승격</text>
+        </svg>
+        <figcaption>
+          핵심은 단 하나다 — v1 서빙 경로를 <strong>한 번도 건드리지 않고</strong> v2를 격리 빌드한 뒤,
+          정량 게이트를 통과한 경우에만 alias를 스왑한다. 스왑은 되돌릴 수 있는 단일 지점이고,
+          이 지점이 곧 롤백 지점이다.
+        </figcaption>
+      </figure>
+
+      <h3>구성 요소</h3>
+      <div class="scrollx">
+        <table>
+          <thead><tr><th>컴포넌트</th><th>레인</th><th>책임</th></tr></thead>
+          <tbody>
+            <tr><td>Proxy / alias</td><td><span class="tag">공통</span></td><td>단일 전환 지점. 클라이언트는 컬렉션 이름을 모른다</td></tr>
+            <tr><td>Collection v1</td><td><span class="tag a">serving</span></td><td>현행 임베딩·현행 인덱스. 재색인 중 무변경</td></tr>
+            <tr><td>Collection v2</td><td><span class="tag b">build</span></td><td>신규 임베딩·후보 인덱스. 승격 전까지 트래픽 0</td></tr>
+            <tr><td>Re-embed job</td><td><span class="tag b">build</span></td><td>소스 배치 재임베딩. 결과를 디스크 캐시로 보존</td></tr>
+            <tr><td>Shadow comparator</td><td><span class="tag b">build</span></td><td>동일 질의를 두 컬렉션에 던져 recall·지연 차이 수집</td></tr>
+            <tr><td>Quality Gate</td><td><span class="tag ok">gate</span></td><td>기준 미달 시 스왑 거부. 사람 판단 개입 없음</td></tr>
+            <tr><td>Load generator</td><td><span class="tag">공통</span></td><td>Zipf 분포 질의를 전 구간 연속 주입</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>쓰기 따라잡기 전략</h3>
+      <p>
+        스냅샷 시점 <span class="mono">t₀</span> 이후 유입된 쓰기를 v2가 놓치면 데이터가 갈린다.
+        두 전략을 구현해 비교한다.
+      </p>
+      <ul>
+        <li><strong>Dual-write</strong> — 재색인 구간 동안 애플리케이션이 v1·v2에 동시 기록. 단순하지만 애플리케이션 변경이 필요하다.</li>
+        <li><strong>Delta backfill</strong> — 소스의 <span class="mono">updated_at &gt; t₀</span> 델타를 스왑 직전에 재생. 애플리케이션 무변경이지만 마지막 델타 구간에 짧은 지연이 남는다.</li>
+      </ul>
+      <p>어느 쪽이 더 나은지를 <strong>측정해서 결론 내는 것</strong> 자체가 산출물이다.</p>
+    </section>
+
+    <!-- 05 -->
+    <section id="s5">
+      <div class="s-head"><span class="s-num">05</span><h2>기능 명세</h2></div>
+      <p class="s-lede">모듈 두 개. M1이 M2의 판정 근거를 만든다.</p>
+
+      <h3>M1 · Index Pareto Lab</h3>
+      <p>
+        "이 데이터, 이 SLO에서는 이 인덱스 설정" 을 근거와 함께 답하는 스윕 러너.
+        일반론 표가 아니라 <strong>내 데이터에서의 측정값</strong>을 만든다.
+      </p>
+      <div class="scrollx">
+        <table>
+          <thead><tr><th>축</th><th>값</th></tr></thead>
+          <tbody>
+            <tr><td>인덱스</td><td>HNSW · IVF_FLAT · IVF_SQ8 · IVF_PQ · DiskANN · FLAT</td></tr>
+            <tr><td>파라미터</td><td>HNSW <span class="mono">M</span>/<span class="mono">ef</span>, IVF <span class="mono">nlist</span>/<span class="mono">nprobe</span></td></tr>
+            <tr><td>양자화·refiner</td><td>none · SQ8 · PQ + refine 배수 1/3/5</td></tr>
+            <tr><td>필터 비율</td><td class="num">0 · 50 · 85 · 95 · 99 %</td></tr>
+            <tr><td>mmap</td><td>on / off</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>수집 지표:</strong> recall@10 · QPS · p50/p95/p99 · 인덱스 빌드 시간 · RSS · 인덱스 파일 크기.</p>
+      <p>
+        <strong>출력:</strong> <span class="mono">pareto.json</span> + recall–QPS 파레토 곡선(필터 비율별 계열) +
+        "p99 ≤ 50 ms &amp; recall ≥ 0.95" 같은 SLO를 넣으면 통과 설정을 추려주는 CLI.
+      </p>
+      <div class="note">
+        <b>차별점</b>
+        기존 벤치 도구가 약한 지점이 <strong>필터 비율 축</strong>이다. 실제 RAG는 거의 항상 메타데이터
+        필터와 함께 검색하는데, 필터 비율이 85 %를 넘는 순간 그래프 인덱스와 IVF의 우열이 뒤집힌다.
+        이 뒤집힘 지점을 내 데이터에서 찾아 제시하는 것이 M1의 핵심 결과물이다.
+      </div>
+
+      <h3>M2 · Shift Pipeline</h3>
+      <p>단계마다 중단 가능하고, 각 단계가 멱등하다.</p>
+      <div class="scrollx">
+        <table>
+          <thead><tr><th>단계</th><th>동작</th><th>실패 시</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">plan</td><td>대상·목표 설정·예상 소요·리소스 계획 출력</td><td>중단 (부작용 없음)</td></tr>
+            <tr><td class="mono">snapshot</td><td><span class="mono">t₀</span> 고정, 소스 매니페스트 확정</td><td>중단</td></tr>
+            <tr><td class="mono">build</td><td>재임베딩 → v2 적재 → 인덱스 빌드</td><td>v2 드롭 후 재시도</td></tr>
+            <tr><td class="mono">catchup</td><td>dual-write 또는 델타 백필로 <span class="mono">t₀</span> 이후 재생</td><td>재실행 (멱등)</td></tr>
+            <tr><td class="mono">shadow</td><td>골든셋 + 라이브 미러 질의로 두 컬렉션 비교</td><td>리포트 후 중단</td></tr>
+            <tr><td class="mono">gate</td><td>03의 기준으로 자동 판정</td><td><strong>스왑 거부</strong></td></tr>
+            <tr><td class="mono">swap</td><td>alias 전환, 전환 시각 마킹</td><td>즉시 rollback</td></tr>
+            <tr><td class="mono">verify</td><td>스왑 후 5분간 지표 감시</td><td>자동 rollback</td></tr>
+            <tr><td class="mono">rollback</td><td>alias를 v1로 복귀</td><td>수동 개입 알림</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>장애 주입</h3>
+      <p>
+        "정상 경로만 도는 파이프라인"은 증명이 아니다. 최소 3가지를 의도적으로 터뜨리고 복구를 확인한다 —
+        <strong>빌드 중 Milvus 프로세스 강제 종료</strong>, <strong>스왑 직후 v2 지표 악화</strong>,
+        <strong>catchup 도중 소스 연결 끊김</strong>.
+      </p>
+    </section>
+
+    <!-- 06 -->
+    <section id="s6">
+      <div class="s-head"><span class="s-num">06</span><h2>기술 스택</h2></div>
+      <p class="s-lede">선택마다 이유가 붙는다. 이유 없는 선택은 DECISIONS.md에 적을 게 없다.</p>
+
+      <div class="scrollx">
+        <table>
+          <thead><tr><th>영역</th><th>선택</th><th>이유</th></tr></thead>
+          <tbody>
+            <tr><td>벡터 DB</td><td>Milvus 3.0.1 Standalone</td><td>Snapshot·alias·스키마 진화가 이 문제에 필요한 재료</td></tr>
+            <tr><td>배포</td><td>Docker Compose</td><td>K8s는 비목표. 재현성은 compose로 충분</td></tr>
+            <tr><td>클라이언트</td><td>pymilvus 3.0.1</td><td>Lite ↔ Standalone 코드 동일 — 프로토타입이 그대로 확장</td></tr>
+            <tr><td>런타임</td><td>Python 3.12 (고정)</td><td>3.14는 임베딩 스택 휠이 아직 불안정. venv로 못 박는다</td></tr>
+            <tr><td>임베딩 (현행)</td><td>BAAI/bge-m3</td><td>한국어 성능 확보된 다국어 기준선</td></tr>
+            <tr><td>임베딩 (교체)</td><td>multilingual-e5-large 등</td><td>차원·정규화 방식이 달라 교체 난이도가 현실적</td></tr>
+            <tr><td>데이터셋</td><td>한국어 코퍼스 1.2 M chunk</td><td>랜덤 벡터는 벤치를 무의미하게 만든다</td></tr>
+            <tr><td>골든셋</td><td>500 질의 + FLAT 정답</td><td>브루트포스를 ground truth로 recall 계산</td></tr>
+            <tr><td>부하 생성</td><td>asyncio 자체 구현</td><td>Zipf 분포 + 필터 비율 제어가 필요</td></tr>
+            <tr><td>관측</td><td>Prometheus + Grafana</td><td>Milvus가 exporter를 기본 제공</td></tr>
+            <tr><td>CI</td><td>GitHub Actions</td><td>nightly 벤치 → recall 회귀 시 PR 차단</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 07 -->
+    <section id="s7">
+      <div class="s-head"><span class="s-num">07</span><h2>실행 계획</h2></div>
+      <p class="s-lede">4주. 마지막 주는 문서 전용이다.</p>
+
+      <div class="scrollx">
+        <div class="gantt">
+          <div class="g-h"></div><div class="g-h">W1</div><div class="g-h">W2</div><div class="g-h">W3</div><div class="g-h">W4</div>
+
+          <div class="g-l">환경 구축 · Milvus 기동</div>
+          <div class="g-c on-n"></div><div class="g-c"></div><div class="g-c"></div><div class="g-c"></div>
+
+          <div class="g-l">데이터 적재 · 골든셋 500</div>
+          <div class="g-c on-n"></div><div class="g-c"></div><div class="g-c"></div><div class="g-c"></div>
+
+          <div class="g-l">M1 인덱스 스윕 러너</div>
+          <div class="g-c"></div><div class="g-c on-a"></div><div class="g-c"></div><div class="g-c"></div>
+
+          <div class="g-l">M1 파레토 리포트 생성</div>
+          <div class="g-c"></div><div class="g-c on-a"></div><div class="g-c"></div><div class="g-c"></div>
+
+          <div class="g-l">관측성 · Grafana</div>
+          <div class="g-c"></div><div class="g-c on-a"></div><div class="g-c on-a"></div><div class="g-c"></div>
+
+          <div class="g-l">M2 스냅샷 · 재색인 잡</div>
+          <div class="g-c"></div><div class="g-c"></div><div class="g-c on-b"></div><div class="g-c"></div>
+
+          <div class="g-l">M2 섀도우 · 게이트 · 스왑</div>
+          <div class="g-c"></div><div class="g-c"></div><div class="g-c on-b"></div><div class="g-c on-b"></div>
+
+          <div class="g-l">장애 주입 · 롤백 검증</div>
+          <div class="g-c"></div><div class="g-c"></div><div class="g-c"></div><div class="g-c on-b"></div>
+
+          <div class="g-l">README · DECISIONS · 블로그</div>
+          <div class="g-c"></div><div class="g-c"></div><div class="g-c"></div><div class="g-c on-k"></div>
+        </div>
+      </div>
+
+      <h3>주차별 완료 조건</h3>
+      <ul>
+        <li><strong>W1</strong> — <span class="mono">docker compose up</span> 후 1.2 M 벡터가 적재되고, 골든셋으로 recall이 계산된다.</li>
+        <li><strong>W2</strong> — 인덱스 설정 최소 20종의 파레토 곡선이 하나의 그래프로 출력된다.</li>
+        <li><strong>W3</strong> — 부하가 걸린 상태에서 v1 → v2 스왑이 다운타임 0으로 성공한다.</li>
+        <li><strong>W4</strong> — 낯선 사람이 README만 읽고 30초 안에 "무엇을 왜 만들었는지" 이해한다.</li>
+      </ul>
+    </section>
+
+    <!-- 08 -->
+    <section id="s8">
+      <div class="s-head"><span class="s-num">08</span><h2>산출물</h2></div>
+      <p class="s-lede">이 체크리스트가 완주 여부를 정의한다. 진행 상황은 이 브라우저에 저장된다.</p>
+
+      <div id="cl"></div>
+      <p class="cl-status" id="clStatus">체크 상태는 이 브라우저에 저장됩니다.</p>
+    </section>
+
+    <!-- 09 -->
+    <section id="s9">
+      <div class="s-head"><span class="s-num">09</span><h2>리스크</h2></div>
+      <p class="s-lede">터질 것을 미리 적어두면, 터졌을 때 기획이 아니라 계획대로가 된다.</p>
+
+      <div class="scrollx">
+        <table>
+          <thead><tr><th>리스크</th><th>영향</th><th>대응</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Milvus 3.0 신기능 문서 부족</td>
+              <td><span class="tag b">일정</span></td>
+              <td>2.6 API 대체 경로를 먼저 확보. Snapshot이 막히면 이중 컬렉션 수동 고정으로 우회</td>
+            </tr>
+            <tr>
+              <td>1.2 M 재임베딩 시간</td>
+              <td><span class="tag b">일정</span></td>
+              <td>임베딩 결과를 디스크 캐시로 보존. 차원 축소 실험은 10 만 서브셋으로만</td>
+            </tr>
+            <tr>
+              <td>로컬 하드웨어 한계</td>
+              <td><span class="tag a">신뢰도</span></td>
+              <td>절대값 대신 상대 비교로 서술. 동일 조건 3회 반복, CV 함께 공개</td>
+            </tr>
+            <tr>
+              <td>골든셋 품질 미달</td>
+              <td><span class="tag a">신뢰도</span></td>
+              <td>LLM 라벨링 후 100건 수동 검수. 검수 결과도 리포트에 포함</td>
+            </tr>
+            <tr>
+              <td>Python 3.14 생태계</td>
+              <td><span class="tag b">일정</span></td>
+              <td>3.12 venv 고정. 버전은 <span class="mono">.python-version</span>으로 못 박는다</td>
+            </tr>
+            <tr>
+              <td>스코프 크리프</td>
+              <td><span class="tag b">완주</span></td>
+              <td>02의 비목표를 매주 재확인. W4 코딩 금지 규칙 준수</td>
+            </tr>
+            <tr>
+              <td>합성 부하의 한계</td>
+              <td><span class="tag a">신뢰도</span></td>
+              <td>숨기지 않고 README에 명시. 실제 트래픽과 다를 수 있는 지점을 구체적으로 열거</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section id="s10">
+      <div class="s-head"><span class="s-num">10</span><h2>확장 로드맵</h2></div>
+      <p class="s-lede">4주를 완주한 뒤에 손대는 것들. 지금은 건드리지 않는다.</p>
+
+      <ul>
+        <li><strong>External Collection 경로</strong> — Iceberg·Parquet에 있는 데이터를 복사 없이 인덱싱하는 "ETL 없는 재색인". 희소성이 가장 높지만 문서가 가장 부족하다.</li>
+        <li><strong>Multi-vector 비교</strong> — StructArray 위에서 TokenANN / Muvera / Lemur 세 전략의 비용·정확도 곡선.</li>
+        <li><strong>Sparse SINDI 검증</strong> — 한국어 학습 sparse 임베딩에서 "MaxScore 대비 최대 10배" 주장을 실측.</li>
+        <li><strong>멀티테넌시</strong> — partition key 기반 테넌트별 재색인. 전체가 아니라 일부 테넌트만 교체하는 시나리오.</li>
+        <li><strong>비용 모델</strong> — 인덱스 설정 → 메모리 → 인스턴스 타입 → 월 비용. 엔지니어링을 돈으로 번역하는 마지막 한 칸.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <span class="mono">VecShift · plan v0.1 · 2026-09-15</span>
+      <span class="mono">Milvus 3.0.1 / pymilvus 3.0.1</span>
+    </footer>
+
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var GROUPS = [
+    { name: "기반", items: [
+      { id:"d1", t:"docker compose 기동 스크립트 + 데이터 적재 CLI" },
+      { id:"d2", t:"골든셋 500 질의 + FLAT 기반 recall 산출기" }
+    ]},
+    { name: "M1 · Index Pareto Lab", items: [
+      { id:"d3", t:"인덱스 스윕 러너 (grid config → 결과 JSON)" },
+      { id:"d4", t:"파레토 리포트 생성기 (recall–QPS 곡선, 필터 비율 계열)" },
+      { id:"d5", t:"SLO 입력 → 통과 설정 추천 CLI" }
+    ]},
+    { name: "M2 · Shift Pipeline", items: [
+      { id:"d6", t:"스냅샷 + 재임베딩 + v2 격리 빌드 잡" },
+      { id:"d7", t:"catchup 두 전략 (dual-write / delta backfill) 구현·비교" },
+      { id:"d8", t:"섀도우 비교기 + 정량 게이트 + alias 스왑·롤백 커맨드" },
+      { id:"d9", t:"장애 주입 3종 시나리오와 복구 검증 결과" }
+    ]},
+    { name: "운영 · 문서", items: [
+      { id:"d10", t:"Grafana 대시보드 JSON + Prometheus 설정" },
+      { id:"d11", t:"GitHub Actions nightly 벤치 + recall 회귀 차단" },
+      { id:"d12", t:"README (다이어그램 1장 + 결과 표) · DECISIONS.md · 블로그 2편" }
+    ]}
+  ];
+
+  var ALL = [];
+  GROUPS.forEach(function(g){ g.items.forEach(function(i){ ALL.push(i.id); }); });
+
+  var LS_KEY = "vecshift.progress.v1";
+  var state = {};
+
+  function readLocal(){
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (raw) return JSON.parse(raw) || {};
+    } catch(e){}
+    return {};
+  }
+  function writeLocal(){
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch(e){}
+  }
+
+  function build(){
+    var host = document.getElementById("cl");
+    var html = "";
+    GROUPS.forEach(function(g){
+      html += '<div class="cl-group"><h4>' + g.name + '</h4>';
+      g.items.forEach(function(i){
+        html += '<label class="ck" for="ck-' + i.id + '">'
+             +  '<input type="checkbox" id="ck-' + i.id + '" data-id="' + i.id + '">'
+             +  '<span class="ck-box" aria-hidden="true"></span>'
+             +  '<span class="ck-t"><span class="id">' + i.id.toUpperCase() + '</span>' + i.t + '</span>'
+             +  '</label>';
+      });
+      html += '</div>';
+    });
+    host.innerHTML = html;
+    host.addEventListener("change", function(e){
+      var el = e.target;
+      if (!el || el.type !== "checkbox") return;
+      state[el.getAttribute("data-id")] = el.checked;
+      writeLocal();
+      paint();
+    });
+  }
+
+  function paint(){
+    var done = 0;
+    ALL.forEach(function(id){
+      var el = document.getElementById("ck-" + id);
+      var on = !!state[id];
+      if (el) el.checked = on;
+      if (on) done++;
+    });
+    var pct = Math.round(done / ALL.length * 100);
+    document.getElementById("progTxt").textContent = done + " / " + ALL.length;
+    document.getElementById("progFill").style.width = pct + "%";
+    document.getElementById("progNote").textContent =
+      done === ALL.length ? "완주. 이제 남은 건 공개뿐입니다."
+                          : "08 산출물 체크리스트와 연동됩니다.";
+  }
+
+  function status(msg){
+    var el = document.getElementById("clStatus");
+    if (el) el.textContent = msg;
+  }
+
+  state = readLocal();
+  build();
+  paint();
+  status("체크 상태는 이 브라우저에 저장됩니다.");
+})();
+</script>
+</body>
+</html>
