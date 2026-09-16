@@ -1,4 +1,4 @@
-"""vecshift CLI. W1 범위: doctor / smoke."""
+"""vecshift CLI. W1 범위: doctor / smoke / ingest / goldenset / eval."""
 
 from __future__ import annotations
 
@@ -168,6 +168,158 @@ def smoke(config: str = typer.Option(None, "--config", "-c")) -> None:
         typer.echo("")
         typer.secho(f"{type(e).__name__}: {e}", fg=typer.colors.RED)
         raise typer.Exit(1)
+
+
+@app.command()
+def ingest(
+    config: str = typer.Option(None, "--config", "-c"),
+    variant: str = typer.Option("v1", "--variant", help="embedding.v1 / v2"),
+    rebuild: bool = typer.Option(False, "--rebuild", help="티어 샘플과 컬렉션을 다시 만든다"),
+) -> None:
+    """MIRACL 코퍼스를 티어만큼 샘플링해 임베딩하고 Milvus 에 적재한다."""
+    import json
+
+    from . import collection as coll
+    from . import dataset as ds
+    from .client import connect
+    from .embed import Encoder, batched, passage_text
+    from .paths import RESULTS, ensure_dirs
+
+    cfg = load(config)
+    ensure_dirs()
+    tier = cfg.require("dataset.active_tier")
+    v = cfg.variant(variant)
+
+    typer.echo(f"\n적재  tier={tier}({cfg.active_tier_size or 'full'})  "
+               f"variant={variant}  model={v['id']}  dim={v['dim']}\n")
+
+    t0 = time.perf_counter()
+    path, info = ds.build_tier(cfg, force=rebuild)
+    _line(OK, "티어 샘플",
+          f"{info['rows']:,} rows  정답포함 {info['positives']}개"
+          + ("  (재사용)" if info["reused"] else f"  {time.perf_counter()-t0:.0f}s"))
+    if info.get("missing_positives"):
+        _line(WARN, "정답 누락", f"{info['missing_positives']}개 — recall 상한이 낮아진다")
+
+    enc = Encoder(v, batch_size=int(cfg.get("embedding.batch_size", 64)),
+                  normalize=bool(cfg.get("embedding.normalize", True)))
+    _line(OK, "인코더", f"{enc.id}  device={enc.device}  batch={enc.batch_size}")
+
+    client = connect(cfg)
+    name = coll.name_for(cfg, variant)
+    coll.create(client, name, enc.dim, enc.metric, drop_existing=rebuild)
+    _line(OK, "컬렉션", f"{name}  metric={enc.metric}")
+
+    total, t0 = 0, time.perf_counter()
+    with typer.progressbar(length=info["rows"], label="  임베딩+적재") as bar:
+        for chunk in batched(ds.iter_tier(path), 1024):
+            vecs = enc.passages([passage_text(d) for d in chunk])
+            total += coll.insert(client, name, [d["docid"] for d in chunk],
+                                 [d.get("title", "") for d in chunk], vecs)
+            bar.update(len(chunk))
+    client.flush(collection_name=name)
+    dt = time.perf_counter() - t0
+    _line(OK, "적재 완료", f"{total:,} rows  {dt:.0f}s  ({total/dt:.0f} rows/s)")
+
+    (RESULTS / f"ingest-{tier}-{variant}.json").write_text(json.dumps(
+        {"tier": tier, "variant": variant, "model": enc.id, "dim": enc.dim,
+         "rows": total, "seconds": round(dt, 1), "device": enc.device,
+         "collection": name}, ensure_ascii=False, indent=2), encoding="utf-8")
+    typer.echo("")
+    typer.secho(f"적재 완료 — {name}", fg=typer.colors.GREEN)
+
+
+@app.command()
+def goldenset(
+    config: str = typer.Option(None, "--config", "-c"),
+    split: str = typer.Option("dev", "--split", help="dev / train"),
+) -> None:
+    """qrels 에서 골든셋을 만든다. dev 는 213 질의로 고정 — 이게 전부다."""
+    import json
+
+    from . import dataset as ds
+    from .paths import DATA, ensure_dirs
+
+    cfg = load(config)
+    ensure_dirs()
+    rel, topics = ds.load_qrels(split)
+    pos = ds.positive_docids(rel)
+
+    want = int(cfg.get("goldenset.size", 0) or 0)
+    have = len(topics)
+    out = DATA / f"goldenset-{split}.json"
+    out.write_text(json.dumps(
+        {"split": split, "queries": topics, "qrels": rel}, ensure_ascii=False), encoding="utf-8")
+
+    typer.echo(f"\n골든셋  split={split}\n")
+    _line(OK, "질의", f"{have}개")
+    _line(OK, "정답 문서", f"{pos and len(pos)}개 (고유)")
+    _line(OK, "질의당 평균 정답",
+          f"{sum(1 for j in rel.values() for r in j.values() if r > 0)/max(len(rel),1):.2f}개")
+    if want and want > have:
+        _line(WARN, "설정 goldenset.size",
+              f"{want} 요청 / {have} 가능 — MIRACL {split} 은 이게 전부다")
+    _line(OK, "저장", str(out.relative_to(ROOT)))
+    typer.echo("")
+
+
+@app.command(name="eval")
+def eval_(
+    config: str = typer.Option(None, "--config", "-c"),
+    variant: str = typer.Option("v1", "--variant"),
+    split: str = typer.Option("dev", "--split"),
+    k: int = typer.Option(0, "--k", help="0 이면 설정의 goldenset.top_k"),
+) -> None:
+    """골든셋으로 nDCG@k · Recall@k 를 계산한다 (qrels 기준 — D-007)."""
+    import json
+
+    from . import collection as coll
+    from . import dataset as ds
+    from .client import connect
+    from .embed import Encoder
+    from .evaluate import aggregate
+    from .paths import RESULTS, ensure_dirs
+
+    cfg = load(config)
+    ensure_dirs()
+    k = k or int(cfg.get("goldenset.top_k", 10))
+    v = cfg.variant(variant)
+    rel, topics = ds.load_qrels(split)
+
+    enc = Encoder(v, batch_size=int(cfg.get("embedding.batch_size", 64)),
+                  normalize=bool(cfg.get("embedding.normalize", True)))
+    client = connect(cfg)
+    name = coll.name_for(cfg, variant)
+    if not client.has_collection(name):
+        typer.secho(f"컬렉션이 없습니다: {name} — 먼저 `make ingest`", fg=typer.colors.RED)
+        raise typer.Exit(1)
+    client.load_collection(collection_name=name)
+
+    typer.echo(f"\n평가  collection={name}  split={split}  k={k}  질의 {len(topics)}개\n")
+
+    qids = list(topics)
+    qvecs = enc.queries([topics[q] for q in qids])
+    t0 = time.perf_counter()
+    res = client.search(collection_name=name, data=[x.tolist() for x in qvecs],
+                        limit=k, output_fields=["docid"])
+    ms = (time.perf_counter() - t0) * 1000
+
+    runs = {qid: [h["id"] if "id" in h else h["entity"]["docid"] for h in hits]
+            for qid, hits in zip(qids, res)}
+    m = aggregate(runs, rel, k)
+
+    _line(OK, "검색", f"{len(qids)} 질의  {ms:.0f}ms  ({ms/len(qids):.1f}ms/질의)")
+    _line(OK, f"nDCG@{k}", f"{m[f'ndcg@{k}']:.4f}  ± {m[f'ndcg@{k}_stderr']:.4f}")
+    _line(OK, f"Recall@{k}", f"{m[f'recall@{k}']:.4f}  ± {m[f'recall@{k}_stderr']:.4f}")
+
+    tier = cfg.require("dataset.active_tier")
+    out = RESULTS / f"eval-{tier}-{variant}-{split}.json"
+    out.write_text(json.dumps(
+        {"tier": tier, "variant": variant, "model": enc.id, "split": split, "k": k,
+         "collection": name, "search_ms_total": round(ms, 1), **m},
+        ensure_ascii=False, indent=2), encoding="utf-8")
+    typer.echo("")
+    typer.secho(f"저장 — {out.relative_to(ROOT)}", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":
