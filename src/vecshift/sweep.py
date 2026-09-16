@@ -85,8 +85,11 @@ def run_build(client: MilvusClient, name: str, build: dict, qvecs, k: int,
         med = statistics.median(times)
         n = len(qvecs)
         qps_all = sorted(n / t for t in times if t)
-        # QPS 는 실행 간 변동이 크다 — 두 번의 독립 스윕에서 중앙 15%, 최대 110% 차이가
-        # 났다(D-021). 중앙값 하나만 남기면 없는 차이를 있다고 읽게 된다. 폭을 함께 남긴다.
+        # **대표값은 최대값(best-of-N)이다.** 중앙값이 아니다.
+        # 반복 내 QPS 폭이 중앙 43 % 까지 벌어지는데, 분포를 보면 느린 쪽으로만 튄다
+        # (중앙값/최대값 비율 0.934, 38개 중 25개가 0.9 이상). 간섭은 시간을 더할 뿐
+        # 빼지 않으므로, 가장 빠른 실행이 간섭 없는 값에 가장 가깝다 — D-022.
+        # 중앙값도 함께 남겨 둘을 맞대볼 수 있게 한다.
         row = {
             "build": build["name"],
             "index_type": build["type"],
@@ -98,7 +101,8 @@ def run_build(client: MilvusClient, name: str, build: dict, qvecs, k: int,
             "queries": n,
             "repeats": len(times),
             "batch_seconds_median": round(med, 4),
-            "qps": round(n / med, 1) if med else 0.0,
+            "qps": round(qps_all[-1], 1) if qps_all else 0.0,          # best-of-N
+            "qps_median": round(n / med, 1) if med else 0.0,
             "qps_min": round(qps_all[0], 1) if qps_all else 0.0,
             "qps_max": round(qps_all[-1], 1) if qps_all else 0.0,
             "qps_spread_pct": round((qps_all[-1] - qps_all[0]) / qps_all[0] * 100, 1)

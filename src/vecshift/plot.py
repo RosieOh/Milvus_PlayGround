@@ -33,9 +33,10 @@ def pareto_chart(rows: list[dict], frontier: list[dict], out: Path,
         color = INDEX_COLORS.get(t, "#555555")
         # QPS 는 반복 간 변동이 크다. 폭을 오차막대로 그리지 않으면 점 사이의
         # 작은 차이를 유의한 것으로 읽게 된다 (D-021).
+        # 대표값이 최대값이므로 막대는 아래로만 뻗는다 — 느린 이상치의 범위다.
         if all("qps_min" in g and "qps_max" in g for g in group):
             lo = [max(0.0, g["qps"] - g["qps_min"]) for g in group]
-            hi = [max(0.0, g["qps_max"] - g["qps"]) for g in group]
+            hi = [0.0 for _ in group]
             ax.errorbar(x, y, yerr=[lo, hi], fmt="none", ecolor=color,
                         elinewidth=1.1, capsize=2.5, alpha=0.55, zorder=2)
         ax.scatter(x, y, label=t, s=58, alpha=0.9, color=color,
@@ -45,15 +46,19 @@ def pareto_chart(rows: list[dict], frontier: list[dict], out: Path,
         ax.plot([f[recall_key] for f in frontier], [f["qps"] for f in frontier],
                 color="#333333", lw=1.4, ls="--", zorder=2,
                 label="파레토 프론티어")
-        for f in frontier:
+        # 프론티어 라벨은 x 가 촘촘한 구간에서 겹친다. 위/아래를 번갈아 놓아 분리한다.
+        for i, f in enumerate(frontier):
+            dy = 9 if i % 2 == 0 else -14
             ax.annotate(f["label"], (f[recall_key], f["qps"]),
-                        textcoords="offset points", xytext=(6, 5),
-                        fontsize=7.5, color="#333333")
+                        textcoords="offset points", xytext=(7, dy),
+                        fontsize=7.2, color="#333333",
+                        bbox=dict(boxstyle="round,pad=0.18", fc="white",
+                                  ec="none", alpha=0.72))
 
     # "ann_recall@10" → "ANN recall@10". 키를 그대로 쓰면 ANN 이 두 번 나온다.
     pretty = recall_key.replace("ann_recall", "recall")
     ax.set_xlabel(f"ANN {pretty}  (FLAT 브루트포스 대비 — 인덱스 품질)")
-    ax.set_ylabel("QPS  (배치 처리량 중앙값, 막대는 반복 간 폭 — 동시 QPS 가 아니다)")
+    ax.set_ylabel("QPS  (배치 처리량 best-of-N, 막대는 느린 쪽 폭 — 동시 QPS 가 아니다)")
     ax.set_yscale("log")
     ax.grid(True, which="both", alpha=0.22, lw=0.6)
 
