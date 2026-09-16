@@ -1,4 +1,4 @@
-"""vecshift CLI. doctor / smoke / ingest / goldenset / eval / sweep."""
+"""vecshift CLI. doctor / smoke / ingest / goldenset / eval / sweep / load / shift."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import typer
 
 from . import __version__
-from .config import ROOT, load
+from .config import ROOT, load as load_cfg
 
 app = typer.Typer(
     add_completion=False,
@@ -49,7 +49,7 @@ def doctor(config: str = typer.Option(None, "--config", "-c")) -> None:
 
     # 3. 설정
     try:
-        cfg = load(config)
+        cfg = load_cfg(config)
         tier = cfg.require("dataset.active_tier")
         _line(OK, "config", f"{cfg.path.relative_to(ROOT)}  tier={tier}"
               f" ({cfg.active_tier_size or 'full'})")
@@ -109,7 +109,7 @@ def smoke(config: str = typer.Option(None, "--config", "-c")) -> None:
 
     from .client import connect
 
-    cfg = load(config)
+    cfg = load_cfg(config)
     client = connect(cfg)
     name = "_vecshift_smoke"
     dim, n = 32, 1000
@@ -185,7 +185,7 @@ def ingest(
     from .embed import Encoder, batched, passage_text
     from .paths import RESULTS, ensure_dirs
 
-    cfg = load(config)
+    cfg = load_cfg(config)
     ensure_dirs()
     tier = cfg.require("dataset.active_tier")
     v = cfg.variant(variant)
@@ -240,7 +240,7 @@ def goldenset(
     from . import dataset as ds
     from .paths import DATA, ensure_dirs
 
-    cfg = load(config)
+    cfg = load_cfg(config)
     ensure_dirs()
     rel, topics = ds.load_qrels(split)
     pos = ds.positive_docids(rel)
@@ -283,7 +283,7 @@ def eval_(
     from .evaluate import aggregate, per_query
     from .paths import RESULTS, ensure_dirs
 
-    cfg = load(config)
+    cfg = load_cfg(config)
     ensure_dirs()
     k = k or int(cfg.get("goldenset.top_k", 10))
     v = cfg.variant(variant)
@@ -354,7 +354,7 @@ def sweep(
     from .embed import Encoder
     from .paths import ROOT as _ROOT, RESULTS, ensure_dirs
 
-    cfg = load(config)
+    cfg = load_cfg(config)
     ensure_dirs()
     k = k or int(cfg.get("goldenset.top_k", 10))
     v = cfg.variant(variant)
@@ -425,6 +425,222 @@ def sweep(
 
     typer.echo("")
     typer.secho("스윕 완료.", fg=typer.colors.GREEN)
+
+
+def _parse_params(items: list[str] | None) -> dict:
+    """`ef=64` 같은 문자열을 검색 파라미터 dict 로. 숫자는 숫자로 바꾼다 —
+    문자열로 넘기면 Milvus 가 조용히 무시하거나 기본값을 쓴다."""
+    out: dict = {}
+    for it in items or []:
+        if "=" not in it:
+            raise typer.BadParameter(f"key=value 형식이어야 합니다: {it}")
+        k, v = it.split("=", 1)
+        try:
+            out[k.strip()] = int(v)
+        except ValueError:
+            try:
+                out[k.strip()] = float(v)
+            except ValueError:
+                out[k.strip()] = v.strip()
+    return out
+
+
+def _query_vectors(cfg, variant: str, split: str):
+    """골든셋 질의를 해당 variant 로 임베딩한다."""
+    from . import dataset as ds
+    from .embed import Encoder
+
+    _, topics = ds.load_qrels(split)
+    enc = Encoder(cfg.variant(variant),
+                  batch_size=int(cfg.get("embedding.batch_size", 64)),
+                  normalize=bool(cfg.get("embedding.normalize", True)))
+    return enc, [x.tolist() for x in enc.queries([topics[q] for q in topics])]
+
+
+@app.command()
+def load(
+    config: str = typer.Option(None, "--config", "-c"),
+    variant: str = typer.Option("v1", "--variant"),
+    split: str = typer.Option("dev", "--split"),
+    target: str = typer.Option(None, "--target", help="컬렉션 또는 alias. 기본은 설정의 alias"),
+    seconds: float = typer.Option(20.0, "--seconds"),
+    workers: int = typer.Option(8, "--workers"),
+    gap_ms: float = typer.Option(500.0, "--gap-ms", help="이 이상 응답이 끊기면 정지로 본다"),
+    param: list[str] = typer.Option(None, "--param", "-p",
+                                    help="검색 파라미터 key=value (예: -p ef=64). 반복 가능"),
+) -> None:
+    """동시 클라이언트로 부하를 걸고 지연·오류·정지 구간을 잰다 (진짜 QPS)."""
+    import json
+
+    from . import load as ld
+    from .client import connect
+    from .paths import ROOT as _ROOT, RESULTS, ensure_dirs
+
+    cfg = load_cfg(config)
+    ensure_dirs()
+    k = int(cfg.get("goldenset.top_k", 10))
+    tgt = target or cfg.require("collection.alias")
+    sp = _parse_params(param)
+    enc, qvecs = _query_vectors(cfg, variant, split)
+
+    client = connect(cfg)
+    typer.echo(f"\n부하  target={tgt}  질의 {len(qvecs)}개(Zipf)  "
+               f"워커 {workers}  {seconds:.0f}s"
+               + (f"  params={sp}" if sp else "  params=인덱스 기본값") + "\n")
+    res = ld.run(lambda: connect(cfg), tgt, qvecs, k, seconds, workers, sp)
+
+    pcs = res.percentiles()
+    gaps = res.gaps(gap_ms)
+    _line(OK, "요청", f"{len(res.samples):,}건  성공 {len(res.oks()):,}")
+    _line(OK if res.error_rate() == 0 else BAD, "오류율", f"{res.error_rate()*100:.4f}%")
+    _line(OK, "QPS", f"{res.qps():,.0f}  (동시 {workers} · 단건 검색)")
+    _line(OK, "지연", f"p50 {pcs['p50']:.2f}ms  p95 {pcs['p95']:.2f}ms  p99 {pcs['p99']:.2f}ms")
+    _line(OK if not gaps else BAD, f"정지 구간(>{gap_ms:.0f}ms)",
+          f"{len(gaps)}개" + (f"  최대 {max((b-a)*1000 for a,b in gaps):.0f}ms" if gaps else ""))
+
+    out = RESULTS / f"load-{tgt}-{int(time.time())}.json"
+    out.write_text(json.dumps({
+        "target": tgt, "workers": workers, "seconds": res.duration,
+        "search_params": sp,
+        "requests": len(res.samples), "ok": len(res.oks()),
+        "error_rate": res.error_rate(), "qps": res.qps(), **pcs,
+        "gaps": gaps, "windows": res.window_stats(1.0),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    _line(OK, "결과", str(out.relative_to(_ROOT)))
+    typer.echo("")
+
+
+@app.command()
+def shift(
+    config: str = typer.Option(None, "--config", "-c"),
+    of: str = typer.Option("v1", "--from", help="현행 variant"),
+    to: str = typer.Option("v2", "--to", help="교체 대상 variant"),
+    split: str = typer.Option("dev", "--split"),
+    threshold: float = typer.Option(0.01, "--threshold", help="허용 가능한 품질 하락폭"),
+    under_load: float = typer.Option(0.0, "--under-load",
+                                     help="이 초만큼 부하를 걸고 그 중간에 스왑한다"),
+    workers: int = typer.Option(8, "--workers"),
+    rollback: bool = typer.Option(False, "--rollback", help="스왑 후 즉시 되돌려 소요를 잰다"),
+    force: bool = typer.Option(False, "--force", help="게이트를 무시하고 스왑"),
+) -> None:
+    """v1 → v2 alias 스왑. 품질 게이트를 통과해야 넘어간다."""
+    import json
+    import threading
+
+    from . import collection as coll
+    from . import load as ld
+    from . import shift as sh
+    from .client import connect
+    from .paths import ROOT as _ROOT, RESULTS, ensure_dirs
+
+    cfg = load_cfg(config)
+    ensure_dirs()
+    alias = cfg.require("collection.alias")
+    src, dst = coll.name_for(cfg, of), coll.name_for(cfg, to)
+    client = connect(cfg)
+
+    typer.echo(f"\n스왑  alias={alias}  {of}({src}) → {to}({dst})\n")
+    for name in (src, dst):
+        if not client.has_collection(name):
+            typer.secho(f"컬렉션이 없습니다: {name} — `vecshift ingest --variant "
+                        f"{of if name == src else to}`", fg=typer.colors.RED)
+            raise typer.Exit(1)
+
+    # alias 가 아직 없으면 현행을 가리키게 만든다.
+    if sh.current_target(client, alias) is None:
+        sh.point_alias(client, alias, src)
+    _line(OK, "현재 alias", f"{alias} → {sh.current_target(client, alias)}")
+
+    # ── 품질 게이트 — 스왑 **전에** 판정한다 ────────────────────────────────
+    base = _eval_scores(cfg, of, split)
+    cand = _eval_scores(cfg, to, split)
+    gate = sh.quality_gate(base["ndcg"], cand["ndcg"], threshold)
+    _line(OK, f"게이트 기준({of})", f"nDCG@10 {base['ndcg']:.4f}")
+    _line(OK, f"게이트 후보({to})", f"nDCG@10 {cand['ndcg']:.4f}")
+    _line(OK if gate.passed else BAD, "품질 게이트", gate.reason())
+    if not gate.passed and not force:
+        typer.echo("")
+        typer.secho("스왑을 중단했습니다. --force 로 무시할 수 있습니다.", fg=typer.colors.RED)
+        raise typer.Exit(2)
+
+    # ── 부하를 걸고 그 중간에 스왑한다 ──────────────────────────────────────
+    res = swap_s = rb_s = None
+    if under_load > 0:
+        enc, qvecs = _query_vectors(cfg, of, split)
+        k = int(cfg.get("goldenset.top_k", 10))
+        holder: dict = {}
+
+        def do_swap() -> None:
+            time.sleep(under_load / 2)
+            holder["swap"] = sh.point_alias(client, alias, dst)
+            if rollback:
+                time.sleep(1.0)
+                holder["rollback"] = sh.point_alias(client, alias, src)
+
+        th = threading.Thread(target=do_swap, daemon=True)
+        typer.echo(f"\n  부하 {under_load:.0f}s · 워커 {workers} — 중간에 스왑\n")
+        th.start()
+        res = ld.run(lambda: connect(cfg), alias, qvecs, k, under_load, workers)
+        th.join(timeout=30)
+        swap_s, rb_s = holder.get("swap"), holder.get("rollback")
+    else:
+        swap_s = sh.point_alias(client, alias, dst)
+        if rollback:
+            rb_s = sh.point_alias(client, alias, src)
+
+    _line(OK, "alias 스왑", f"{swap_s*1000:.0f} ms" if swap_s else "—")
+    if rb_s is not None:
+        _line(OK, "롤백", f"{rb_s*1000:.0f} ms")
+    _line(OK, "최종 alias", f"{alias} → {sh.current_target(client, alias)}")
+
+    payload = {
+        "alias": alias, "from": src, "to": dst,
+        "gate": {"metric": gate.metric, "baseline": gate.baseline,
+                 "candidate": gate.candidate, "delta": gate.delta,
+                 "threshold": gate.threshold, "passed": gate.passed},
+        "swap_ms": round(swap_s * 1000, 1) if swap_s else None,
+        "rollback_ms": round(rb_s * 1000, 1) if rb_s is not None else None,
+    }
+    if res is not None:
+        pcs = res.percentiles()
+        gaps = res.gaps(500.0)
+        _line(OK if res.error_rate() == 0 else BAD, "부하 중 오류율",
+              f"{res.error_rate()*100:.4f}%  ({len(res.samples):,}건)")
+        _line(OK, "부하 중 지연",
+              f"p50 {pcs['p50']:.2f}ms  p95 {pcs['p95']:.2f}ms  p99 {pcs['p99']:.2f}ms")
+        _line(OK if not gaps else BAD, "다운타임",
+              "0" if not gaps else f"{len(gaps)}구간 최대 {max((b-a)*1000 for a,b in gaps):.0f}ms")
+        payload |= {"requests": len(res.samples), "error_rate": res.error_rate(),
+                    "qps": res.qps(), **pcs, "gaps": gaps,
+                    "windows": res.window_stats(1.0)}
+
+    out = RESULTS / f"shift-{of}-to-{to}-{int(time.time())}.json"
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _line(OK, "결과", str(out.relative_to(_ROOT)))
+    typer.echo("")
+    typer.secho("스왑 완료.", fg=typer.colors.GREEN)
+
+
+def _eval_scores(cfg, variant: str, split: str) -> dict:
+    """컬렉션 하나를 골든셋으로 평가해 qrels 기준 점수를 돌려준다."""
+    from . import collection as coll
+    from . import dataset as ds
+    from .client import connect
+    from .evaluate import aggregate
+
+    k = int(cfg.get("goldenset.top_k", 10))
+    rel, topics = ds.load_qrels(split)
+    enc, qvecs = _query_vectors(cfg, variant, split)
+    client = connect(cfg)
+    name = coll.name_for(cfg, variant)
+    client.load_collection(collection_name=name)
+    res = client.search(collection_name=name, data=qvecs, limit=k,
+                        output_fields=["docid"])
+    qids = list(topics)
+    runs = {q: [h.get("docid") or h["entity"]["docid"] for h in hits]
+            for q, hits in zip(qids, res)}
+    m = aggregate(runs, rel, k)
+    return {"ndcg": m[f"ndcg@{k}"], "recall": m[f"recall@{k}"]}
 
 
 if __name__ == "__main__":
