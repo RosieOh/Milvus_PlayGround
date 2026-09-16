@@ -523,6 +523,11 @@ def shift(
     rollback: bool = typer.Option(False, "--rollback", help="스왑 후 즉시 되돌려 소요를 잰다"),
     resolve_every: float = typer.Option(1.0, "--resolve-every",
                                         help="클라이언트가 alias 를 다시 해석하는 주기(초)"),
+    writes: float = typer.Option(0.0, "--writes",
+                                 help="재색인 중 초당 이만큼 쓴다. 0 이면 쓰기 없음"),
+    skip_catchup: bool = typer.Option(
+        False, "--skip-catchup",
+        help="따라잡기를 건너뛴다 — 검증기가 유실을 실제로 잡는지 확인하는 음성 대조군"),
     force: bool = typer.Option(False, "--force", help="게이트를 무시하고 스왑"),
 ) -> None:
     """v1 → v2 alias 스왑. 품질 게이트를 통과해야 넘어간다."""
@@ -548,9 +553,14 @@ def shift(
                         f"{of if name == src else to}`", fg=typer.colors.RED)
             raise typer.Exit(1)
 
-    # alias 가 아직 없으면 현행을 가리키게 만든다.
-    if sh.current_target(client, alias) is None:
+    # **시작 상태를 보장한다.** alias 가 이미 대상(v2)을 가리키고 있으면 스왑이
+    # 아무 일도 안 하게 되고, 쓰기는 처음부터 v2 로 들어가 "유실 0" 이 거짓으로 나온다.
+    # 앞선 실행이 롤백 없이 끝나면 실제로 그 상태가 된다(D-029).
+    was = sh.current_target(client, alias)
+    if was != src:
         sh.point_alias(client, alias, src)
+        _line(WARN if was else OK, "시작 상태 보정",
+              f"{alias} {was or '(없음)'} → {src}")
     _line(OK, "현재 alias", f"{alias} → {sh.current_target(client, alias)}")
 
     # ── 품질 게이트 — 스왑 **전에** 판정한다 ────────────────────────────────
@@ -602,24 +612,77 @@ def shift(
             meta = coll.resolve_alias(client, alias)
             return meta["collection"], by_dim[int(meta["dim"])]
 
+        # ── 쓰기 워커 — 재색인 중 들어오는 쓰기를 만든다 ────────────────────
+        from . import writes as wr
+
+        journal = wr.Journal()
+        enc_lock = threading.Lock()
+        encoders_by_dim = {}
+        for v in (of, to):
+            e = Encoder(cfg.variant(v),
+                        batch_size=int(cfg.get("embedding.batch_size", 64)),
+                        normalize=bool(cfg.get("embedding.normalize", True)))
+            encoders_by_dim[e.dim] = e
+
+        def encode(texts: list[str], dim: int) -> list[list[float]]:
+            # MPS 인코더는 스레드 안전하지 않다 — 쓰기 워커와 따라잡기가 함께 쓴다.
+            with enc_lock:
+                return [x.tolist() for x in encoders_by_dim[int(dim)].passages(texts)]
+
+        def target_of(client) -> tuple[str, int]:
+            m = coll.resolve_alias(client, alias)
+            return m["collection"], int(m["dim"])
+
         holder: dict = {}
 
         def do_swap() -> None:
             # 부하의 1/3 지점에서 스왑하고, 1/3 동안 v2 로 서비스한 뒤 되돌린다.
             # v2 체류를 1초로 두면 재해석 주기에 묻혀 전환이 보이지 않는다.
             time.sleep(under_load / 3)
+            # ── 따라잡기 — 스왑 **전에** 끝나야 한다 ────────────────────────
+            # 저널에 쌓인 원문을 대상 모델로 다시 임베딩해 v2 에 넣는다.
+            # 못 따라잡으면 스왑하지 않는다 — 스왑 뒤에 발견하면 이미 유실이다.
+            if writes > 0:
+                pend = journal.snapshot()
+                # --skip-catchup 은 음성 대조군이다. 검증기가 항상 0 을 뱉는다면
+                # 쓸모가 없다 — 유실을 만들어서 잡히는지 먼저 확인해야 한다(D-027).
+                holder["catchup"] = ({"replayed": 0, "seconds": 0.0, "skipped": True}
+                                     if skip_catchup else wr.catch_up(
+                                         client, dst, pend, encode,
+                                         int(cfg.variant(to)["dim"])))
+                # 검증 대상은 **스왑 시점까지의 쓰기**다. 그 뒤의 쓰기는 라이브
+                # 컬렉션(스왑 후엔 v2, 롤백 후엔 다시 v1)으로 직접 들어가므로
+                # v2 에 없는 것이 정상이다. 전체 저널로 대조하면 정상을 유실로 센다.
+                holder["at_swap_ids"] = {e.docid for e in pend}
+                holder["journal_at_swap"] = len(pend)
             holder["swap"] = sh.point_alias(client, alias, dst)
             if rollback:
                 time.sleep(under_load / 3)
                 holder["rollback"] = sh.point_alias(client, alias, src)
 
         th = threading.Thread(target=do_swap, daemon=True)
+        wstop = threading.Event()
+        wres: dict = {}
+        wt = None
+        if writes > 0:
+            wt = threading.Thread(
+                target=lambda: wres.update(wr.writer(
+                    lambda: connect(cfg), journal, target_of, encode, wstop,
+                    writes, time.perf_counter(), wr.run_prefix())),
+                daemon=True)
         typer.echo(f"\n  부하 {under_load:.0f}s · 워커 {workers} · "
-                   f"alias 재해석 주기 {resolve_every:.1f}s — 중간에 스왑\n")
+                   f"alias 재해석 주기 {resolve_every:.1f}s"
+                   + (f" · 쓰기 {writes:.0f}/s" if writes > 0 else "")
+                   + " — 중간에 스왑\n")
         th.start()
+        if wt:
+            wt.start()
         res = ld.run(lambda: connect(cfg), src, qvecs, k, under_load, workers,
                      resolve=resolve, resolve_every=resolve_every)
-        th.join(timeout=30)
+        th.join(timeout=120)
+        wstop.set()
+        if wt:
+            wt.join(timeout=30)
         swap_s, rb_s = holder.get("swap"), holder.get("rollback")
     else:
         swap_s = sh.point_alias(client, alias, dst)
@@ -656,6 +719,17 @@ def shift(
         if moved:
             hit = sum(w["targets"].get(dst, 0) for w in tl)
             _line(OK, f"  {dst} 처리량", f"{hit:,}건  t={moved[0]:.0f}~{moved[-1]:.0f}s")
+        if writes > 0:
+            cu = holder.get("catchup") or {}
+            _line(OK, "쓰기", f"{wres.get('written', 0):,}건  실패 {wres.get('failed', 0)}")
+            _line(OK, "따라잡기",
+                  f"{cu.get('replayed', 0):,}건 재생  {cu.get('seconds', 0):.1f}s"
+                  f"  (스왑 시점 저널 {holder.get('journal_at_swap', 0):,})")
+            ver = wr.verify(client, dst, holder.get("at_swap_ids") or set())
+            _line(OK if ver["missing"] == 0 else BAD, "쓰기 유실",
+                  f"{ver['missing']}건 / 기대 {ver['expected']:,}건"
+                  + (f"  예: {ver['sample_missing']}" if ver["missing"] else ""))
+            payload["writes"] = {**wres, "catchup": cu, "verify": ver}
         if res.reresolve_ms:
             rr = sorted(res.reresolve_ms)
             _line(OK, "재해석+재임베딩",
