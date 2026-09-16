@@ -1,4 +1,4 @@
-"""vecshift CLI. W1 범위: doctor / smoke / ingest / goldenset / eval."""
+"""vecshift CLI. doctor / smoke / ingest / goldenset / eval / sweep."""
 
 from __future__ import annotations
 
@@ -334,6 +334,97 @@ def eval_(
         ensure_ascii=False, indent=2), encoding="utf-8")
     typer.echo("")
     typer.secho(f"저장 — {out.relative_to(ROOT)}", fg=typer.colors.GREEN)
+
+
+@app.command()
+def sweep(
+    config: str = typer.Option(None, "--config", "-c"),
+    variant: str = typer.Option("v1", "--variant"),
+    split: str = typer.Option("dev", "--split"),
+    k: int = typer.Option(0, "--k", help="0 이면 설정의 goldenset.top_k"),
+    only: str = typer.Option(None, "--only", help="빌드 이름 부분일치로 걸러 실행"),
+) -> None:
+    """M1 — 인덱스 파라미터를 훑고 파레토 곡선을 낸다 (ANN recall — D-007)."""
+    import json
+
+    from . import collection as coll
+    from . import dataset as ds
+    from . import sweep as sw
+    from .client import connect
+    from .embed import Encoder
+    from .paths import ROOT as _ROOT, RESULTS, ensure_dirs
+
+    cfg = load(config)
+    ensure_dirs()
+    k = k or int(cfg.get("goldenset.top_k", 10))
+    v = cfg.variant(variant)
+    metric = v.get("metric", "COSINE")
+    builds = cfg.require("sweep.builds")
+    if only:
+        builds = [b for b in builds if only in b["name"]]
+    repeats = int(cfg.get("sweep.repeats", 3))
+    warmup = int(cfg.get("sweep.warmup", 1))
+
+    _, topics = ds.load_qrels(split)
+    enc = Encoder(v, batch_size=int(cfg.get("embedding.batch_size", 64)),
+                  normalize=bool(cfg.get("embedding.normalize", True)))
+    qvecs = [x.tolist() for x in enc.queries([topics[q] for q in topics])]
+
+    client = connect(cfg)
+    name = coll.name_for(cfg, variant)
+    if not client.has_collection(name):
+        typer.secho(f"컬렉션이 없습니다: {name} — 먼저 `make ingest`", fg=typer.colors.RED)
+        raise typer.Exit(1)
+
+    total = sum(len(b.get("search") or [{}]) for b in builds)
+    typer.echo(f"\n스윕  collection={name}  질의 {len(qvecs)}개  k={k}  "
+               f"빌드 {len(builds)}종 → 설정 {total}개\n")
+
+    t0 = time.perf_counter()
+    gt_type = cfg.get("sweep.ground_truth", "FLAT")
+    truth = sw.ground_truth(client, name, qvecs, k, metric, gt_type)
+    _line(OK, f"정답({gt_type})", f"{len(truth)} 질의  {time.perf_counter()-t0:.0f}s")
+
+    rows: list[dict] = []
+    rkey = f"ann_recall@{k}"
+    for b in builds:
+        def show(r: dict) -> None:
+            _line(OK, r["label"],
+                  f"recall {r[rkey]:.4f}  {r['qps']:>8,.0f} QPS  "
+                  f"{r['ms_per_query']:.3f} ms/q  build {r['build_seconds']:.0f}s")
+        rows += sw.run_build(client, name, b, qvecs, k, metric, truth,
+                             repeats, warmup, on_result=show)
+
+    front = sw.pareto(rows, rkey, "qps")
+    typer.echo("")
+    _line(OK, "파레토 프론티어", f"{len(front)} / {len(rows)} 설정")
+    for f in front:
+        _line(OK, f"  {f['label']}", f"recall {f[rkey]:.4f}  {f['qps']:,.0f} QPS")
+
+    tier = cfg.require("dataset.active_tier")
+    out = RESULTS / f"sweep-{tier}-{variant}.json"
+    out.write_text(json.dumps(
+        {"tier": tier, "variant": variant, "model": enc.id, "k": k,
+         "metric": metric, "queries": len(qvecs), "ground_truth": gt_type,
+         "repeats": repeats, "rows": rows,
+         "pareto": [f["label"] for f in front]},
+        ensure_ascii=False, indent=2), encoding="utf-8")
+    _line(OK, "결과", str(out.relative_to(_ROOT)))
+
+    try:
+        from .plot import pareto_chart, use_korean_font
+
+        use_korean_font()
+        png = pareto_chart(
+            rows, front, _ROOT / "reports" / f"pareto-{tier}-{variant}.png", rkey,
+            f"M1 인덱스 파레토 — {tier} 티어 / {enc.id}",
+            f"질의 {len(qvecs)}개 · k={k} · {metric} · DISKANN 은 저장 계층 때문에 불리하다(D-010)")
+        _line(OK, "그래프", str(png.relative_to(_ROOT)))
+    except ImportError:
+        _line(WARN, "그래프", "matplotlib 없음 — `uv pip install -e '.[viz]'`")
+
+    typer.echo("")
+    typer.secho("스윕 완료.", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":
