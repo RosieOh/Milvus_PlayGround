@@ -28,16 +28,26 @@ def recall_at_k(ranked: list[str], judged: dict[str, int], k: int) -> float:
     return len(positives & set(ranked[:k])) / len(positives)
 
 
-def aggregate(runs: dict[str, list[str]], rel: dict[str, dict[str, int]],
-              k: int = 10) -> dict[str, float]:
-    """질의별 점수의 산술평균. 질의 수가 적으므로(dev 213개) 표본오차를 함께 낸다."""
-    nd, rc = [], []
+def per_query(runs: dict[str, list[str]], rel: dict[str, dict[str, int]],
+              k: int = 10) -> dict[str, dict[str, float]]:
+    """질의별 점수. **두 설정을 비교하려면 이게 있어야 한다** — 같은 질의를 쓰므로
+    대응비교(paired)가 옳고, 독립 신뢰구간을 겹쳐 보는 것은 검정력을 버리는 짓이다."""
+    out: dict[str, dict[str, float]] = {}
     for qid, ranked in runs.items():
         judged = rel.get(qid, {})
         if not judged:
             continue
-        nd.append(ndcg_at_k(ranked, judged, k))
-        rc.append(recall_at_k(ranked, judged, k))
+        out[qid] = {f"ndcg@{k}": ndcg_at_k(ranked, judged, k),
+                    f"recall@{k}": recall_at_k(ranked, judged, k)}
+    return out
+
+
+def aggregate(runs: dict[str, list[str]], rel: dict[str, dict[str, int]],
+              k: int = 10) -> dict[str, float]:
+    """질의별 점수의 산술평균. 질의 수가 적으므로(dev 213개) 표본오차를 함께 낸다."""
+    pq = per_query(runs, rel, k)
+    nd = [v[f"ndcg@{k}"] for v in pq.values()]
+    rc = [v[f"recall@{k}"] for v in pq.values()]
     n = len(nd) or 1
     mean_nd = sum(nd) / n
     mean_rc = sum(rc) / n
@@ -47,6 +57,26 @@ def aggregate(runs: dict[str, list[str]], rel: dict[str, dict[str, int]],
         f"recall@{k}": mean_rc,
         f"ndcg@{k}_stderr": _stderr(nd, mean_nd),
         f"recall@{k}_stderr": _stderr(rc, mean_rc),
+    }
+
+
+def paired_delta(a: dict[str, dict[str, float]], b: dict[str, dict[str, float]],
+                 metric: str) -> dict[str, float]:
+    """a − b 의 대응 차이. 같은 질의에서만 계산한다."""
+    qids = sorted(set(a) & set(b))
+    d = [a[q][metric] - b[q][metric] for q in qids]
+    n = len(d)
+    if n < 2:
+        return {"n": n, "mean": 0.0, "stderr": 0.0, "t": 0.0,
+                "wins": 0, "losses": 0, "ties": n}
+    mean = sum(d) / n
+    se = _stderr(d, mean)
+    return {
+        "n": n, "mean": mean, "stderr": se,
+        "t": mean / se if se else 0.0,
+        "wins": sum(1 for x in d if x > 1e-12),
+        "losses": sum(1 for x in d if x < -1e-12),
+        "ties": sum(1 for x in d if abs(x) <= 1e-12),
     }
 
 
