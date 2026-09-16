@@ -46,3 +46,32 @@ goldenset:
   size: 0
   split: "dev"
   top_k: 10
+
+# M1 인덱스 스윕. 빌드 파라미터는 재빌드가 필요하고 검색 파라미터는 아니다 —
+# 그래서 (빌드 1회) × (검색 N회) 로 묶는다. 20종 이상을 현실적인 시간에 돌리는 전제다.
+sweep:
+  # 정답(ground truth)은 FLAT 브루트포스다. ANN recall 은 여기 대비로만 정의된다(D-007).
+  ground_truth: "FLAT"
+  repeats: 3          # 검색 반복 횟수. 중앙값을 취해 노이즈를 줄인다
+  warmup: 1           # 측정에서 버릴 예열 횟수
+  builds:
+    - {name: "ivf_flat-n128",  type: "IVF_FLAT", params: {nlist: 128},
+       search: [{nprobe: 1}, {nprobe: 8}, {nprobe: 32}, {nprobe: 128}]}
+    - {name: "ivf_flat-n1024", type: "IVF_FLAT", params: {nlist: 1024},
+       search: [{nprobe: 1}, {nprobe: 16}, {nprobe: 64}, {nprobe: 256}]}
+    - {name: "ivf_sq8-n512",   type: "IVF_SQ8",  params: {nlist: 512},
+       search: [{nprobe: 8}, {nprobe: 32}, {nprobe: 128}]}
+    - {name: "ivf_pq-n512",    type: "IVF_PQ",   params: {nlist: 512, m: 8, nbits: 8},
+       search: [{nprobe: 8}, {nprobe: 32}, {nprobe: 128}]}
+    - {name: "hnsw-m8",        type: "HNSW",     params: {M: 8, efConstruction: 200},
+       search: [{ef: 16}, {ef: 64}, {ef: 256}]}
+    - {name: "hnsw-m16",       type: "HNSW",     params: {M: 16, efConstruction: 200},
+       search: [{ef: 16}, {ef: 64}, {ef: 256}]}
+    - {name: "hnsw-m32",       type: "HNSW",     params: {M: 32, efConstruction: 200},
+       search: [{ef: 16}, {ef: 64}, {ef: 256}]}
+    - {name: "scann-n512",     type: "SCANN",    params: {nlist: 512},
+       search: [{nprobe: 8}, {nprobe: 32}, {nprobe: 128}]}
+    # DISKANN 은 디스크 랜덤 읽기가 지배적이다. 이 장비의 외장 저장 계층은 내장 대비
+    # 4k 랜덤 읽기가 8.6배 느리므로(D-010) **부당하게 불리하게 나온다.** 리포트에 명시할 것.
+    - {name: "diskann",        type: "DISKANN",  params: {},
+       search: [{search_list: 16}, {search_list: 64}, {search_list: 256}]}
