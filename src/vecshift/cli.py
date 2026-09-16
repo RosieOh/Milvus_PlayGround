@@ -304,8 +304,12 @@ def eval_(
                         limit=k, output_fields=["docid"])
     ms = (time.perf_counter() - t0) * 1000
 
-    runs = {qid: [h["id"] if "id" in h else h["entity"]["docid"] for h in hits]
-            for qid, hits in zip(qids, res)}
+    # pymilvus 는 기본키 필드명을 **그대로 최상위 키**로 돌려준다. PK 가 docid 이므로
+    # h["docid"] 다 — `h["id"]` 가 아니다. 구버전/다른 스키마 대비로 entity 도 본다.
+    def hit_docid(h: dict) -> str:
+        return h.get("docid") or h.get("id") or h["entity"]["docid"]
+
+    runs = {qid: [hit_docid(h) for h in hits] for qid, hits in zip(qids, res)}
     m = aggregate(runs, rel, k)
 
     _line(OK, "검색", f"{len(qids)} 질의  {ms:.0f}ms  ({ms/len(qids):.1f}ms/질의)")
