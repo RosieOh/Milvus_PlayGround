@@ -111,10 +111,30 @@ def build_tier(cfg: Config, seed: int = 42, force: bool = False) -> tuple[Path, 
 
     shards = corpus_shards()
     rng = random.Random(seed)
+    DATA.mkdir(parents=True, exist_ok=True)
 
-    # 한 번 훑으면서 정답은 전부 담고, 나머지는 저수지 표본추출로 뽑는다.
-    # 전량(1.4 M)을 메모리에 올리지 않기 위해서다.
-    fill = max(0, size - len(keep)) if size else 0
+    def line(d: dict) -> str:
+        return json.dumps(
+            {"docid": d["docid"], "title": d.get("title", ""), "text": d["text"]},
+            ensure_ascii=False,
+        ) + "\n"
+
+    # 전량 티어는 뽑을 게 없다. 그대로 흘려 쓴다 — 1.4 M 을 메모리에 올리지 않는다.
+    if not size:
+        n = 0
+        found = 0
+        with open(out, "w", encoding="utf-8") as f:
+            for doc in iter_corpus(shards):
+                if doc["docid"] in keep:
+                    found += 1
+                f.write(line(doc))
+                n += 1
+        return out, {"rows": n, "positives": found,
+                     "missing_positives": len(keep) - found, "reused": False}
+
+    # 티어 샘플: 정답은 전부 담고, 나머지는 저수지 표본추출로 뽑는다.
+    # 저수지 크기는 티어 크기로 제한되므로 메모리는 티어에 비례한다.
+    fill = max(0, size - len(keep))
     reservoir: list[dict] = []
     seen_other = 0
     kept: list[dict] = []
@@ -122,9 +142,6 @@ def build_tier(cfg: Config, seed: int = 42, force: bool = False) -> tuple[Path, 
     for doc in iter_corpus(shards):
         if doc["docid"] in keep:
             kept.append(doc)
-            continue
-        if not size:  # 전량
-            reservoir.append(doc)
             continue
         seen_other += 1
         if len(reservoir) < fill:
@@ -137,13 +154,9 @@ def build_tier(cfg: Config, seed: int = 42, force: bool = False) -> tuple[Path, 
     rows = kept + reservoir
     rng.shuffle(rows)
 
-    DATA.mkdir(parents=True, exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         for r in rows:
-            f.write(json.dumps(
-                {"docid": r["docid"], "title": r.get("title", ""), "text": r["text"]},
-                ensure_ascii=False,
-            ) + "\n")
+            f.write(line(r))
 
     return out, {
         "rows": len(rows),
