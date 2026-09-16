@@ -41,5 +41,8 @@ collection:
   prefix: "miracl_ko"
 
 goldenset:
-  size: 500
+  # MIRACL ko dev 는 213 질의가 전부다. 임의로 500개를 만들 수 없다 — 사람이
+  # 판정한 것만 쓰는 것이 D-001 의 전제이므로 있는 만큼만 쓴다. 0 = 전량.
+  size: 0
+  split: "dev"
   top_k: 10
