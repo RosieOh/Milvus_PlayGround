@@ -269,6 +269,9 @@ def eval_(
     variant: str = typer.Option("v1", "--variant"),
     split: str = typer.Option("dev", "--split"),
     k: int = typer.Option(0, "--k", help="0 이면 설정의 goldenset.top_k"),
+    no_query_prefix: bool = typer.Option(
+        False, "--no-query-prefix",
+        help="질의 접두사를 빼고 평가 (D-005 의 접두사 규약 어블레이션)"),
 ) -> None:
     """골든셋으로 nDCG@k · Recall@k 를 계산한다 (qrels 기준 — D-007)."""
     import json
@@ -277,7 +280,7 @@ def eval_(
     from . import dataset as ds
     from .client import connect
     from .embed import Encoder
-    from .evaluate import aggregate
+    from .evaluate import aggregate, per_query
     from .paths import RESULTS, ensure_dirs
 
     cfg = load(config)
@@ -288,6 +291,8 @@ def eval_(
 
     enc = Encoder(v, batch_size=int(cfg.get("embedding.batch_size", 64)),
                   normalize=bool(cfg.get("embedding.normalize", True)))
+    if no_query_prefix:
+        enc.query_prefix = ""  # 문서는 접두사가 붙은 채로 색인돼 있다 — 불일치를 만든다
     client = connect(cfg)
     name = coll.name_for(cfg, variant)
     if not client.has_collection(name):
@@ -295,7 +300,8 @@ def eval_(
         raise typer.Exit(1)
     client.load_collection(collection_name=name)
 
-    typer.echo(f"\n평가  collection={name}  split={split}  k={k}  질의 {len(topics)}개\n")
+    tag = "  [접두사 없음 — 어블레이션]" if no_query_prefix else ""
+    typer.echo(f"\n평가  collection={name}  split={split}  k={k}  질의 {len(topics)}개{tag}\n")
 
     qids = list(topics)
     qvecs = enc.queries([topics[q] for q in qids])
@@ -317,10 +323,14 @@ def eval_(
     _line(OK, f"Recall@{k}", f"{m[f'recall@{k}']:.4f}  ± {m[f'recall@{k}_stderr']:.4f}")
 
     tier = cfg.require("dataset.active_tier")
-    out = RESULTS / f"eval-{tier}-{variant}-{split}.json"
+    suffix = "-noprefix" if no_query_prefix else ""
+    out = RESULTS / f"eval-{tier}-{variant}-{split}{suffix}.json"
     out.write_text(json.dumps(
         {"tier": tier, "variant": variant, "model": enc.id, "split": split, "k": k,
-         "collection": name, "search_ms_total": round(ms, 1), **m},
+         "collection": name, "query_prefix": enc.query_prefix,
+         "search_ms_total": round(ms, 1), **m,
+         # 질의별 점수를 남긴다 — 두 설정의 대응비교에 필요하다.
+         "per_query": per_query(runs, rel, k)},
         ensure_ascii=False, indent=2), encoding="utf-8")
     typer.echo("")
     typer.secho(f"저장 — {out.relative_to(ROOT)}", fg=typer.colors.GREEN)
