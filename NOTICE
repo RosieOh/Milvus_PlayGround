@@ -1,0 +1,38 @@
+VecShift
+Copyright 2026 RosieOh
+
+This product includes software developed at Milvus (https://milvus.io/).
+
+--------------------------------------------------------------------------------
+Vendored third-party files
+--------------------------------------------------------------------------------
+
+docker-compose.yml
+  Derived from milvus-standalone-docker-compose.yml, released with Milvus v3.0.1
+  (https://github.com/milvus-io/milvus), licensed under the Apache License 2.0.
+
+  Modified by RosieOh:
+    - minio image registry changed from Docker Hub to quay.io, tag unchanged.
+      The Docker Hub repository minio/minio is no longer available, so the
+      upstream file cannot be started as published. See DECISIONS.md D-008.
+    - Removed the obsolete top-level `version` attribute, which Compose v2
+      ignores and warns about. See DECISIONS.md D-009.
+
+  Every modification is also marked inline in the file header.
+
+--------------------------------------------------------------------------------
+Data and models used at runtime (not redistributed)
+--------------------------------------------------------------------------------
+
+These are downloaded by the user when running the harness. They are not
+included in this repository and are listed here for attribution only.
+
+MIRACL corpus and qrels (Korean, v1.0-ko)
+  https://huggingface.co/datasets/miracl/miracl-corpus
+  https://huggingface.co/datasets/miracl/miracl
+  Apache License 2.0
+
+intfloat/multilingual-e5-small, intfloat/multilingual-e5-base
+  https://huggingface.co/intfloat/multilingual-e5-small
+  https://huggingface.co/intfloat/multilingual-e5-base
+  MIT License
