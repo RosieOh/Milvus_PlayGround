@@ -17,6 +17,10 @@ dependencies = [
 data = [
     "huggingface-hub>=0.26",
 ]
+# 파레토 곡선 출력
+viz = [
+    "matplotlib>=3.9",
+]
 # 임베딩 생성 — 무겁다. 필요할 때만 설치한다.
 embed = [
     "sentence-transformers>=3.3",

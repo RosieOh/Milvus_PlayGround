@@ -8,7 +8,7 @@ VECSHIFT := .venv/bin/vecshift
 export UV_CACHE_DIR := $(CURDIR)/cache/uv
 export HF_HOME := $(CURDIR)/cache/huggingface
 
-.PHONY: help venv venv-full up down logs ps doctor smoke ingest goldenset eval iobench clean nuke
+.PHONY: help venv venv-full up down logs ps doctor smoke ingest goldenset eval sweep iobench clean nuke
 
 help:  ## 사용 가능한 타깃
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -20,7 +20,7 @@ venv:  ## Python 3.12 가상환경 + 코어 의존성
 
 venv-full:  ## 코어 + 데이터셋 + 임베딩 의존성 (torch 포함, 수 GB)
 	uv venv --python 3.12 .venv
-	uv pip install --python .venv/bin/python -e '.[data,embed]'
+	uv pip install --python .venv/bin/python -e '.[data,embed,viz]'
 	@echo '준비 완료 — make ingest'
 
 up:  ## Milvus Standalone 기동
@@ -55,6 +55,9 @@ goldenset:  ## qrels 에서 골든셋 추출
 
 eval:  ## 골든셋으로 nDCG@10 · Recall@10 계산 (qrels 기준 — D-007)
 	$(VECSHIFT) eval
+
+sweep:  ## M1 — 인덱스 파라미터 스윕과 파레토 곡선
+	$(VECSHIFT) sweep
 
 iobench:  ## 컨테이너 내부 랜덤 I/O 측정 (외장 bind vs 내장 volume)
 	bash scripts/iobench.sh
