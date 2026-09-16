@@ -28,10 +28,18 @@ def pareto_chart(rows: list[dict], frontier: list[dict], out: Path,
         by_type.setdefault(r["index_type"], []).append(r)
 
     for t, group in sorted(by_type.items()):
-        ax.scatter([g[recall_key] for g in group], [g["qps"] for g in group],
-                   label=t, s=58, alpha=0.85,
-                   color=INDEX_COLORS.get(t, "#555555"), edgecolors="white",
-                   linewidths=0.8, zorder=3)
+        x = [g[recall_key] for g in group]
+        y = [g["qps"] for g in group]
+        color = INDEX_COLORS.get(t, "#555555")
+        # QPS 는 반복 간 변동이 크다. 폭을 오차막대로 그리지 않으면 점 사이의
+        # 작은 차이를 유의한 것으로 읽게 된다 (D-021).
+        if all("qps_min" in g and "qps_max" in g for g in group):
+            lo = [max(0.0, g["qps"] - g["qps_min"]) for g in group]
+            hi = [max(0.0, g["qps_max"] - g["qps"]) for g in group]
+            ax.errorbar(x, y, yerr=[lo, hi], fmt="none", ecolor=color,
+                        elinewidth=1.1, capsize=2.5, alpha=0.55, zorder=2)
+        ax.scatter(x, y, label=t, s=58, alpha=0.9, color=color,
+                   edgecolors="white", linewidths=0.8, zorder=3)
 
     if frontier:
         ax.plot([f[recall_key] for f in frontier], [f["qps"] for f in frontier],
@@ -45,7 +53,7 @@ def pareto_chart(rows: list[dict], frontier: list[dict], out: Path,
     # "ann_recall@10" → "ANN recall@10". 키를 그대로 쓰면 ANN 이 두 번 나온다.
     pretty = recall_key.replace("ann_recall", "recall")
     ax.set_xlabel(f"ANN {pretty}  (FLAT 브루트포스 대비 — 인덱스 품질)")
-    ax.set_ylabel("QPS  (배치 검색 처리량, 중앙값 — 동시 클라이언트 QPS 가 아니다)")
+    ax.set_ylabel("QPS  (배치 처리량 중앙값, 막대는 반복 간 폭 — 동시 QPS 가 아니다)")
     ax.set_yscale("log")
     ax.grid(True, which="both", alpha=0.22, lw=0.6)
 

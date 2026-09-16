@@ -84,6 +84,9 @@ def run_build(client: MilvusClient, name: str, build: dict, qvecs, k: int,
             times.append(dt)
         med = statistics.median(times)
         n = len(qvecs)
+        qps_all = sorted(n / t for t in times if t)
+        # QPS 는 실행 간 변동이 크다 — 두 번의 독립 스윕에서 중앙 15%, 최대 110% 차이가
+        # 났다(D-021). 중앙값 하나만 남기면 없는 차이를 있다고 읽게 된다. 폭을 함께 남긴다.
         row = {
             "build": build["name"],
             "index_type": build["type"],
@@ -93,8 +96,13 @@ def run_build(client: MilvusClient, name: str, build: dict, qvecs, k: int,
             "build_seconds": round(build_s, 2),
             "ann_recall@%d" % k: ann_recall(got or [], truth),
             "queries": n,
+            "repeats": len(times),
             "batch_seconds_median": round(med, 4),
             "qps": round(n / med, 1) if med else 0.0,
+            "qps_min": round(qps_all[0], 1) if qps_all else 0.0,
+            "qps_max": round(qps_all[-1], 1) if qps_all else 0.0,
+            "qps_spread_pct": round((qps_all[-1] - qps_all[0]) / qps_all[0] * 100, 1)
+            if qps_all and qps_all[0] else 0.0,
             "ms_per_query": round(med / n * 1000, 3) if n else 0.0,
         }
         rows.append(row)
@@ -104,10 +112,10 @@ def run_build(client: MilvusClient, name: str, build: dict, qvecs, k: int,
 
 
 def _sp_label(sp: dict) -> str:
-    for key in SEARCH_KEYS:
-        if key in sp:
-            return f"{key}={sp[key]}"
-    return "default"
+    """검색 파라미터를 라벨로. 두 개 이상이면 전부 보여야 한다 —
+    nprobe 만 찍으면 reorder_k 가 있는 설정과 없는 설정이 같은 이름이 된다."""
+    parts = [f"{k}={sp[k]}" for k in SEARCH_KEYS if k in sp]
+    return ",".join(parts) if parts else "default"
 
 
 def pareto(rows: list[dict], x: str, y: str) -> list[dict]:
