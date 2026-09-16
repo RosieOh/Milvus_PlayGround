@@ -184,6 +184,7 @@ src/vecshift/         패키지 — config / client / paths / dataset / embed /
 docker-compose.yml    Milvus 3.0.1 공식 compose (vendoring, minio 레지스트리만 수정 — D-008)
 docs/vecshift-plan.html   기획서 — 문제 정의부터 4주 계획까지
 docs/vecshift-report.html 리포트 — 실측 결과와 측정이 뒤집은 결론
+docs/compliance.md    라이선스·기여 준수 점검 기록
 scripts/iobench.sh    컨테이너 내부 랜덤 I/O 측정 (make iobench)
 reports/              아키텍처 다이어그램 · 파레토 곡선
 DECISIONS.md          선택의 근거와 막힌 기록
@@ -238,3 +239,6 @@ Apache-2.0 — 전문은 [LICENSE](LICENSE).
 
 MIRACL 코퍼스·qrels(Apache-2.0)와 e5 모델(MIT)은 **저장소에 포함하지 않고** 실행 시
 내려받는다. 출처는 NOTICE 에 적어뒀다.
+
+항목별 점검 기록은 [docs/compliance.md](docs/compliance.md).
+이 저장소는 Milvus 공식 프로젝트와 무관한 개인 프로젝트다.
