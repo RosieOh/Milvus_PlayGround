@@ -231,4 +231,10 @@ DECISIONS.md          선택의 근거와 막힌 기록
 
 ## 라이선스
 
-Apache-2.0
+Apache-2.0 — 전문은 [LICENSE](LICENSE).
+
+`docker-compose.yml` 은 Milvus v3.0.1 의 공식 standalone compose 를 vendoring 한 것이며
+두 군데를 수정했다(D-008 · D-009). 출처와 수정 내역은 [NOTICE](NOTICE) 와 파일 헤더에 있다.
+
+MIRACL 코퍼스·qrels(Apache-2.0)와 e5 모델(MIT)은 **저장소에 포함하지 않고** 실행 시
+내려받는다. 출처는 NOTICE 에 적어뒀다.
