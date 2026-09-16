@@ -8,7 +8,7 @@ VECSHIFT := .venv/bin/vecshift
 export UV_CACHE_DIR := $(CURDIR)/cache/uv
 export HF_HOME := $(CURDIR)/cache/huggingface
 
-.PHONY: help venv venv-full up down logs ps doctor smoke ingest goldenset eval sweep iobench clean nuke
+.PHONY: help venv venv-full up down logs ps doctor smoke ingest ingest-v2 goldenset eval sweep load shift iobench clean nuke
 
 help:  ## 사용 가능한 타깃
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -55,6 +55,15 @@ goldenset:  ## qrels 에서 골든셋 추출
 
 eval:  ## 골든셋으로 nDCG@10 · Recall@10 계산 (qrels 기준 — D-007)
 	$(VECSHIFT) eval
+
+ingest-v2:  ## v2(e5-base 768d) 적재 — 재색인 대상
+	$(VECSHIFT) ingest --variant v2
+
+load:  ## 동시 클라이언트 부하 — 진짜 QPS 와 정지 구간
+	$(VECSHIFT) load
+
+shift:  ## v1 → v2 무중단 스왑 (부하 30s 중간에 스왑 + 롤백)
+	$(VECSHIFT) shift --under-load 30 --rollback
 
 sweep:  ## M1 — 인덱스 파라미터 스윕과 파레토 곡선
 	$(VECSHIFT) sweep
