@@ -58,6 +58,9 @@ make up && make ingest && make shift     # 기동 → 적재 → 부하 중 무�
 - **벤치가 내장 디스크를 0 바이트까지 채워 Docker VM 을 read-only 로 만들었다.**
   놓친 근거는 이미 내가 쓴 문서 안에 있었다. (D-011)
 
+**전체 리포트**: [docs/vecshift-report.html](docs/vecshift-report.html) — 측정이 결론을
+뒤집은 지점과 못 맞춘 목표를 이어붙인 문서. 원본 근거는 [DECISIONS.md](DECISIONS.md) 29건.
+
 > **상태: W1~W4 완료.** 표의 수치는 전부 실측이며 `make` 한 줄로 재현된다.
 
 ---
@@ -176,8 +179,9 @@ src/vecshift/         패키지 — config / client / paths / dataset / embed /
                       collection / evaluate / sweep / plot / load / shift / cli
 docker-compose.yml    Milvus 3.0.1 공식 compose (vendoring, minio 레지스트리만 수정 — D-008)
 docs/vecshift-plan.html   기획서 — 문제 정의부터 4주 계획까지
+docs/vecshift-report.html 리포트 — 실측 결과와 측정이 뒤집은 결론
 scripts/iobench.sh    컨테이너 내부 랜덤 I/O 측정 (make iobench)
-reports/              파레토 곡선 등 산출물
+reports/              아키텍처 다이어그램 · 파레토 곡선
 DECISIONS.md          선택의 근거와 막힌 기록
 ```
 
