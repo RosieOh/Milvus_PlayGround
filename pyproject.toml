@@ -11,9 +11,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# 데이터셋 준비 (MIRACL 다운로드/샘플링)
+# 데이터셋 준비 (MIRACL 다운로드/샘플링).
+# `datasets` 는 쓰지 않는다 — 5.x 가 로더 스크립트 지원을 없애서 원본 파일을
+# 직접 읽도록 바꿨고, 그 결과 의존이 하나 줄었다 (D-013).
 data = [
-    "datasets>=3.0",
     "huggingface-hub>=0.26",
 ]
 # 임베딩 생성 — 무겁다. 필요할 때만 설치한다.
