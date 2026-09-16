@@ -3,15 +3,25 @@ SHELL := /bin/bash
 PY := .venv/bin/python
 VECSHIFT := .venv/bin/vecshift
 
-.PHONY: help venv up down logs ps doctor smoke iobench clean nuke
+# 캐시를 전부 저장소(외장) 안으로 돌린다. 기본값은 ~/.cache 즉 내장이고,
+# 코퍼스·모델 가중치·torch 휠이 거기 쌓이면 내장이 찬다 — D-011, D-012.
+export UV_CACHE_DIR := $(CURDIR)/cache/uv
+export HF_HOME := $(CURDIR)/cache/huggingface
+
+.PHONY: help venv venv-full up down logs ps doctor smoke ingest goldenset eval iobench clean nuke
 
 help:  ## 사용 가능한 타깃
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
 
-venv:  ## Python 3.12 가상환경 + 의존성 설치
+venv:  ## Python 3.12 가상환경 + 코어 의존성
 	uv venv --python 3.12 .venv
 	uv pip install --python .venv/bin/python -e .
 	@echo '준비 완료 — make doctor'
+
+venv-full:  ## 코어 + 데이터셋 + 임베딩 의존성 (torch 포함, 수 GB)
+	uv venv --python 3.12 .venv
+	uv pip install --python .venv/bin/python -e '.[data,embed]'
+	@echo '준비 완료 — make ingest'
 
 up:  ## Milvus Standalone 기동
 	docker compose up -d
@@ -36,6 +46,15 @@ doctor:  ## 환경 점검
 
 smoke:  ## 왕복 검증
 	$(VECSHIFT) smoke
+
+ingest:  ## MIRACL 적재 — 다운로드 → 샘플링 → 임베딩 → Milvus
+	$(VECSHIFT) ingest
+
+goldenset:  ## qrels 에서 골든셋 추출
+	$(VECSHIFT) goldenset
+
+eval:  ## 골든셋으로 nDCG@10 · Recall@10 계산 (qrels 기준 — D-007)
+	$(VECSHIFT) eval
 
 iobench:  ## 컨테이너 내부 랜덤 I/O 측정 (외장 bind vs 내장 volume)
 	bash scripts/iobench.sh
