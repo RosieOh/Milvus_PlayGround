@@ -207,7 +207,7 @@ def ingest(
 
     client = connect(cfg)
     name = coll.name_for(cfg, variant)
-    coll.create(client, name, enc.dim, enc.metric, drop_existing=rebuild)
+    coll.create(client, name, enc.dim, enc.metric, drop_existing=rebuild, model=enc.id)
     _line(OK, "컬렉션", f"{name}  metric={enc.metric}")
 
     total, t0 = 0, time.perf_counter()
@@ -521,6 +521,8 @@ def shift(
                                      help="이 초만큼 부하를 걸고 그 중간에 스왑한다"),
     workers: int = typer.Option(8, "--workers"),
     rollback: bool = typer.Option(False, "--rollback", help="스왑 후 즉시 되돌려 소요를 잰다"),
+    resolve_every: float = typer.Option(1.0, "--resolve-every",
+                                        help="클라이언트가 alias 를 다시 해석하는 주기(초)"),
     force: bool = typer.Option(False, "--force", help="게이트를 무시하고 스왑"),
 ) -> None:
     """v1 → v2 alias 스왑. 품질 게이트를 통과해야 넘어간다."""
@@ -566,21 +568,57 @@ def shift(
     # ── 부하를 걸고 그 중간에 스왑한다 ──────────────────────────────────────
     res = swap_s = rb_s = None
     if under_load > 0:
-        enc, qvecs = _query_vectors(cfg, of, split)
+        from . import dataset as ds
+        from .embed import Encoder
+
         k = int(cfg.get("goldenset.top_k", 10))
+        _, topics = ds.load_qrels(split)
+        texts = [topics[q] for q in topics]
+
+        # 양쪽 모델의 질의 벡터를 **미리** 만들어 둔다.
+        #
+        # 워커 스레드 안에서 재임베딩하면 두 가지가 깨진다.
+        #   1. MPS(Metal)는 스레드 안전하지 않다 — 동시 호출이 프로세스를 죽인다
+        #      (MTLCommandBufferStatusCommitted 어서션).
+        #   2. 해석할 때마다 213개를 통째로 다시 임베딩하는 것은 서비스 거동이 아니다.
+        #      실서비스는 인코더가 이미 떠 있고 질의 하나씩 임베딩한다.
+        #
+        # 그래서 여기서 재는 것은 **클라이언트가 스왑을 얼마나 빨리 따라가는가** 뿐이다.
+        # 임베딩 자체의 비용은 별도로 알려진 값이며 섞지 않는다.
+        by_dim: dict[int, list[list[float]]] = {}
+        for v in (of, to):
+            e = Encoder(cfg.variant(v),
+                        batch_size=int(cfg.get("embedding.batch_size", 64)),
+                        normalize=bool(cfg.get("embedding.normalize", True)))
+            by_dim[e.dim] = [x.tolist() for x in e.queries(texts)]
+        qvecs = by_dim[int(cfg.variant(of)["dim"])]
+
+        def resolve(client) -> tuple[str, list[list[float]]]:
+            """alias 를 해석해 **구체 컬렉션 이름**과 맞는 질의 벡터를 돌려준다.
+
+            alias 를 계속 때리지 않는 것이 요점이다 — 클라이언트가 alias 이름으로
+            캐시한 낡은 컬렉션 메타에 묶이면 스왑 뒤 재시도·백오프에 갇힌다(D-026).
+            """
+            meta = coll.resolve_alias(client, alias)
+            return meta["collection"], by_dim[int(meta["dim"])]
+
         holder: dict = {}
 
         def do_swap() -> None:
-            time.sleep(under_load / 2)
+            # 부하의 1/3 지점에서 스왑하고, 1/3 동안 v2 로 서비스한 뒤 되돌린다.
+            # v2 체류를 1초로 두면 재해석 주기에 묻혀 전환이 보이지 않는다.
+            time.sleep(under_load / 3)
             holder["swap"] = sh.point_alias(client, alias, dst)
             if rollback:
-                time.sleep(1.0)
+                time.sleep(under_load / 3)
                 holder["rollback"] = sh.point_alias(client, alias, src)
 
         th = threading.Thread(target=do_swap, daemon=True)
-        typer.echo(f"\n  부하 {under_load:.0f}s · 워커 {workers} — 중간에 스왑\n")
+        typer.echo(f"\n  부하 {under_load:.0f}s · 워커 {workers} · "
+                   f"alias 재해석 주기 {resolve_every:.1f}s — 중간에 스왑\n")
         th.start()
-        res = ld.run(lambda: connect(cfg), alias, qvecs, k, under_load, workers)
+        res = ld.run(lambda: connect(cfg), src, qvecs, k, under_load, workers,
+                     resolve=resolve, resolve_every=resolve_every)
         th.join(timeout=30)
         swap_s, rb_s = holder.get("swap"), holder.get("rollback")
     else:
@@ -610,9 +648,27 @@ def shift(
               f"p50 {pcs['p50']:.2f}ms  p95 {pcs['p95']:.2f}ms  p99 {pcs['p99']:.2f}ms")
         _line(OK if not gaps else BAD, "다운타임",
               "0" if not gaps else f"{len(gaps)}구간 최대 {max((b-a)*1000 for a,b in gaps):.0f}ms")
+        tl = res.target_timeline(1.0)
+        seen = sorted({t for w in tl for t in w["targets"]})
+        moved = [w["t"] for w in tl if dst in w["targets"]]
+        _line(OK if len(seen) > 1 else BAD, "트래픽 이동",
+              f"{' → '.join(seen)}" if len(seen) > 1 else f"{seen} — 스왑이 반영되지 않았다")
+        if moved:
+            hit = sum(w["targets"].get(dst, 0) for w in tl)
+            _line(OK, f"  {dst} 처리량", f"{hit:,}건  t={moved[0]:.0f}~{moved[-1]:.0f}s")
+        if res.reresolve_ms:
+            rr = sorted(res.reresolve_ms)
+            _line(OK, "재해석+재임베딩",
+                  f"{len(rr)}회  중앙 {rr[len(rr)//2]:.0f}ms  최대 {rr[-1]:.0f}ms")
+            payload_extra = {"reresolves": len(rr),
+                             "reresolve_ms_median": round(rr[len(rr)//2], 1),
+                             "reresolve_ms_max": round(rr[-1], 1)}
+        else:
+            payload_extra = {}
         payload |= {"requests": len(res.samples), "error_rate": res.error_rate(),
                     "qps": res.qps(), **pcs, "gaps": gaps,
-                    "windows": res.window_stats(1.0)}
+                    "windows": res.window_stats(1.0),
+                    "targets": res.target_timeline(1.0), **payload_extra}
 
     out = RESULTS / f"shift-{of}-to-{to}-{int(time.time())}.json"
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
