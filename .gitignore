@@ -16,8 +16,11 @@ cache/*
 *.jsonl
 *.jsonl.gz
 
-# 벤치 산출물
+# 벤치 산출물. 원시 결과(JSON)는 커밋하지 않는다 — 크고, 재현으로 다시 만든다.
 results/*
 !results/.gitkeep
 reports/*
 !reports/.gitkeep
+# 다만 리포트용 그래프는 커밋한다. README 가 참조하므로 저장소에 없으면 깨진다.
+!reports/*.png
+!reports/*.svg
