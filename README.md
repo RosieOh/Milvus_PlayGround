@@ -57,6 +57,10 @@ make up && make ingest && make shift     # 기동 → 적재 → 부하 중 무�
   QPS 대표값이 재현되지 않았고, 노이즈 바닥 아래 차이를 읽고 있었다. (D-018 · D-021 · D-022)
 - **벤치가 내장 디스크를 0 바이트까지 채워 Docker VM 을 read-only 로 만들었다.**
   놓친 근거는 이미 내가 쓴 문서 안에 있었다. (D-011)
+- **업스트림 기여는 중복 확인부터 했다.** Milvus 에 보고하려 보니 이슈·PR 이 이미 있었다.
+  초안의 4분의 3을 버리고, 아무도 짚지 않은 한 가지만 남겼다 — **릴리스 첨부파일이 저장소
+  파일과 태그가 달라서, 8개 파일을 고쳐도 다음 릴리스에 재발한다.**
+  ([PR 댓글](https://github.com/milvus-io/milvus/pull/53431#issuecomment-5694250402) · D-030)
 
 **전체 리포트**: [docs/vecshift-report.html](docs/vecshift-report.html) — 측정이 결론을
 뒤집은 지점과 못 맞춘 목표를 이어붙인 문서. 원본 근거는 [DECISIONS.md](DECISIONS.md) 29건.
