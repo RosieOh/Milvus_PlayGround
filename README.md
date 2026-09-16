@@ -32,12 +32,15 @@ VecShift 는 Milvus 위에서 이 재색인을 **다운타임 없이**, **품질
 ## 재현
 
 ```bash
-make venv     # Python 3.12 가상환경 + 의존성
-make up       # Milvus 3.0.1 Standalone 기동 (healthz 대기 포함)
-make doctor   # 환경 점검
-make smoke    # 생성 → 삽입 → 검색 → 삭제 왕복 검증
-make iobench  # 저장 계층 랜덤 I/O 측정 (측정의 한계 3 참고)
+make venv-full  # Python 3.12 가상환경 + 의존성 (torch 포함, 수 GB)
+make up         # Milvus 3.0.1 Standalone 기동 (healthz 대기 포함)
+make doctor     # 환경 점검
+make ingest     # MIRACL 적재 — 다운로드 → 샘플링 → 임베딩 → Milvus
+make eval       # 골든셋으로 nDCG@10 · Recall@10
 ```
+
+캐시는 전부 저장소 안(`cache/`)으로 떨어진다. 기본값인 `~/.cache` 는 내장 디스크라
+코퍼스와 모델 가중치가 쌓이면 터진다 — D-012.
 
 `make help` 로 전체 타깃을 볼 수 있다.
 
@@ -47,7 +50,7 @@ make iobench  # 저장 계층 랜덤 I/O 측정 (측정의 한계 3 참고)
 
 ```
 config/vecshift.yml   설정 단일 진입점 (코드에 상수를 박지 않는다)
-src/vecshift/         패키지 — config / client / cli
+src/vecshift/         패키지 — config / client / paths / dataset / embed / collection / evaluate / cli
 docker-compose.yml    Milvus 3.0.1 공식 compose (vendoring, minio 레지스트리만 수정 — D-008)
 docs/vecshift-plan.html   기획서 — 문제 정의부터 4주 계획까지
 scripts/iobench.sh    컨테이너 내부 랜덤 I/O 측정 (make iobench)
@@ -76,6 +79,12 @@ DECISIONS.md          선택의 근거와 막힌 기록
    게스트의 O_DIRECT 는 macOS 호스트 캐시를 막지 못한다. D-011 참고.
 5. **recall 은 두 종류다.** 인덱스 품질(ANN recall)과 검색 품질(qrels 기준)을
    섞어 읽으면 안 된다. D-007 참고.
+6. **골든셋이 213 질의뿐이다.** MIRACL ko dev 가 그만큼이다. 질의당 점수의 분산이
+   크므로 모든 검색 품질 수치에 **표준오차를 함께 낸다.** ± 구간이 겹치는 두 수치를
+   "좋아졌다"고 쓰지 않는다. D-015 참고.
+7. **티어마다 정답 밀도가 다르다.** 골든셋 정답 503개를 샘플에 무조건 포함시키므로
+   (D-014), dev 50 K 에서는 정답 밀도가 1 % 지만 전량 1.4 M 에서는 0.036 % 다.
+   **티어가 다른 recall 을 같은 표에 넣지 않는다.** D-006 · D-014 참고.
 
 ---
 
