@@ -61,8 +61,17 @@ sweep:
        search: [{nprobe: 1}, {nprobe: 16}, {nprobe: 64}, {nprobe: 256}]}
     - {name: "ivf_sq8-n512",   type: "IVF_SQ8",  params: {nlist: 512},
        search: [{nprobe: 8}, {nprobe: 32}, {nprobe: 128}]}
-    - {name: "ivf_pq-n512",    type: "IVF_PQ",   params: {nlist: 512, m: 8, nbits: 8},
+    # PQ 는 m(서브양자화기 수)이 품질을 지배한다. m=8 하나만 재면 PQ 에 불공정하다 —
+    # nprobe 를 아무리 올려도 양자화 손실은 되돌아오지 않기 때문이다(D-018).
+    # 384 dim 기준: m=8 → 48차원/8bit, m=48 → 8차원/8bit.
+    - {name: "ivf_pq-m8",      type: "IVF_PQ",   params: {nlist: 512, m: 8, nbits: 8},
        search: [{nprobe: 8}, {nprobe: 32}, {nprobe: 128}]}
+    - {name: "ivf_pq-m16",     type: "IVF_PQ",   params: {nlist: 512, m: 16, nbits: 8},
+       search: [{nprobe: 32}, {nprobe: 128}]}
+    - {name: "ivf_pq-m48",     type: "IVF_PQ",   params: {nlist: 512, m: 48, nbits: 8},
+       search: [{nprobe: 32}, {nprobe: 128}]}
+    - {name: "ivf_pq-m96",     type: "IVF_PQ",   params: {nlist: 512, m: 96, nbits: 8},
+       search: [{nprobe: 32}, {nprobe: 128}]}
     - {name: "hnsw-m8",        type: "HNSW",     params: {M: 8, efConstruction: 200},
        search: [{ef: 16}, {ef: 64}, {ef: 256}]}
     - {name: "hnsw-m16",       type: "HNSW",     params: {M: 16, efConstruction: 200},

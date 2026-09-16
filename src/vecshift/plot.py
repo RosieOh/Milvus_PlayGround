@@ -42,14 +42,19 @@ def pareto_chart(rows: list[dict], frontier: list[dict], out: Path,
                         textcoords="offset points", xytext=(6, 5),
                         fontsize=7.5, color="#333333")
 
-    ax.set_xlabel(f"ANN {recall_key}  (FLAT 브루트포스 대비 — 인덱스 품질)")
-    ax.set_ylabel("QPS  (배치 검색, 중앙값)")
+    # "ann_recall@10" → "ANN recall@10". 키를 그대로 쓰면 ANN 이 두 번 나온다.
+    pretty = recall_key.replace("ann_recall", "recall")
+    ax.set_xlabel(f"ANN {pretty}  (FLAT 브루트포스 대비 — 인덱스 품질)")
+    ax.set_ylabel("QPS  (배치 검색 처리량, 중앙값 — 동시 클라이언트 QPS 가 아니다)")
     ax.set_yscale("log")
     ax.grid(True, which="both", alpha=0.22, lw=0.6)
-    ax.set_title(title, fontsize=13, pad=14 if subtitle else 10)
-    if subtitle:
-        ax.text(0.5, 1.015, subtitle, transform=ax.transAxes, ha="center",
-                va="bottom", fontsize=8.5, color="#666666")
+
+    # 부제를 별도 text 로 얹으면 제목과 겹친다. 제목 문자열에 줄바꿈으로 넣는다.
+    ax.set_title(f"{title}\n{subtitle}" if subtitle else title,
+                 fontsize=12.5, linespacing=1.6)
+
+    # 프론티어 주석이 오른쪽 끝에서 잘리지 않도록 여백을 준다.
+    ax.margins(x=0.13)
     ax.legend(loc="lower left", fontsize=8.5, framealpha=0.92)
 
     out.parent.mkdir(parents=True, exist_ok=True)
