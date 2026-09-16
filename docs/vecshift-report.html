@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VecShift 리포트 — 무중단 임베딩 재색인</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#1f2328; --muted:#6b7280; --line:#e5e7eb;
+    --accent:#0e7490; --ok:#15803d; --warn:#b45309; --bad:#b91c1c;
+    --code-bg:#f6f8fa; --card:#fafafa;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#30363d;
+      --accent:#38bdf8; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+      --code-bg:#161b22; --card:#11161d;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+       padding-block:48px;padding-left:20px;padding-right:20px}
+  main{max-width:820px;margin:0 auto}
+  h1{font-size:1.95rem;line-height:1.3;margin:0 0 6px}
+  h2{font-size:1.3rem;margin:52px 0 12px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  h3{font-size:1.06rem;margin:30px 0 8px}
+  p,li{color:var(--fg)}
+  .sub{color:var(--muted);margin:0 0 4px}
+  .lede{font-size:1.06rem;border-left:3px solid var(--accent);padding:2px 0 2px 16px;margin:26px 0}
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.93rem}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--card);font-weight:600}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  code{background:var(--code-bg);padding:1.5px 5px;border-radius:4px;font-size:.88em}
+  pre{background:var(--code-bg);padding:13px 15px;border-radius:7px;overflow-x:auto;
+      border:1px solid var(--line);font-size:.86rem;line-height:1.6}
+  pre code{background:none;padding:0}
+  .ok{color:var(--ok);font-weight:600}
+  .warn{color:var(--warn);font-weight:600}
+  .bad{color:var(--bad);font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;
+        padding:14px 18px;margin:18px 0}
+  .card h3{margin-top:0}
+  figure{margin:22px 0}
+  figure img{max-width:100%;border:1px solid var(--line);border-radius:7px;background:#fff}
+  figcaption{color:var(--muted);font-size:.85rem;margin-top:7px}
+  .scroll{overflow-x:auto}
+  footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);
+         color:var(--muted);font-size:.87rem}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+
+<h1>VecShift 리포트</h1>
+<p class="sub">Milvus 위에서 임베딩 모델을 무중단으로 교체하는 운영 하네스 · dev 티어 50 K 실측</p>
+
+<p class="lede">
+이 리포트가 자랑하는 것은 “다운타임 0”이 아니다. <strong>그 숫자를 세 번 잘못 선언할 뻔한
+과정</strong>이다. 측정이 결론을 뒤집은 지점마다 무엇을 놓쳤는지 적었다.
+</p>
+
+<h2>1. 문제</h2>
+<p>
+임베딩 모델 교체는 언젠가가 아니라 반드시 일어난다. 모델이 바뀌면 벡터 공간 자체가
+달라지므로 <strong>기존 인덱스는 전부 무효</strong>가 되고 부분 업데이트가 불가능하다.
+전량 재계산과 재색인만이 답인데, 검색은 24/7 떠 있어야 한다.
+</p>
+<p>현장의 대응은 대개 셋 중 하나이고 셋 다 대가가 있다.</p>
+<ul>
+  <li><strong>점검 창을 잡고 내린다</strong> — 다운타임이 발생하고, 데이터가 커질수록 창이 부족해진다.</li>
+  <li><strong>컬렉션 두 개를 수동으로 굴린다</strong> — 전환 시점 쓰기가 유실되고 되돌릴 절차가 없다.</li>
+  <li><strong>검증 없이 갈아끼운다</strong> — 품질 회귀를 배포 후에 발견한다.</li>
+</ul>
+
+<h2>2. 결과</h2>
+<p>기획서가 정한 성공 기준 8개 중 <strong>6개 달성, 2개 미달</strong>.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>기준</th><th>목표</th><th>실측</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr><td>재색인 중 다운타임</td><td>0 s</td><td><strong>0</strong></td><td class="ok">달성</td></tr>
+    <tr><td>쓰기 유실</td><td>0 건</td><td><strong>0 / 45</strong></td><td class="ok">달성</td></tr>
+    <tr><td>부하 중 오류</td><td>0 건</td><td><strong>0 / 45,010</strong></td><td class="ok">달성</td></tr>
+    <tr><td>alias 스왑 소요</td><td>≤ 5 s</td><td><strong>281 ms</strong></td><td class="ok">달성</td></tr>
+    <tr><td>롤백 소요</td><td>≤ 10 s</td><td><strong>148 ms</strong></td><td class="ok">달성</td></tr>
+    <tr><td>품질 게이트</td><td>회귀 시 중단</td><td>통과 nDCG@10 0.8208 → 0.8455</td><td class="ok">달성</td></tr>
+    <tr><td>재색인 중 p99 증가</td><td>≤ +15 %</td><td>전환 1초 창 <strong>+94 %</strong>(읽기만) · <strong>+436 %</strong>(쓰기 동시)</td><td class="warn">미달</td></tr>
+    <tr><td>전량 재색인 소요</td><td>≤ 30 min</td><td>1.4 M 외삽 <strong>약 4.6 h</strong></td><td class="warn">미달</td></tr>
+  </tbody>
+</table>
+</div>
+
+<figure>
+  <img src="../reports/architecture.svg" alt="VecShift 아키텍처 — alias 해석, 재색인 파이프라인, 쓰기 저널, 품질 게이트">
+  <figcaption>서비스는 alias 만 본다. 컬렉션은 그 뒤에서 바뀐다.</figcaption>
+</figure>
+
+<h2>3. 측정이 결론을 뒤집은 지점</h2>
+
+<div class="card">
+<h3>3.1 alias 스왑만으로는 무중단이 되지 않는다</h3>
+<p>
+첫 시도에서 <strong>서버 스왑은 56 ms 에 완벽했는데 서비스는 9 초 멈췄다.</strong>
+</p>
+<pre><code>MilvusException: vector dimension mismatch,
+  expected vector size(byte) 3072, actual 1536</code></pre>
+<p>
+3072 = 768 차원(v2), 1536 = 384 차원(v1). 클라이언트가 <em>옛 모델로 만든</em> 질의 벡터를
+계속 보내고 있었다. <strong>alias 는 컬렉션을 가리킬 뿐 모델을 가리키지 않는다.</strong>
+</p>
+<p>
+인덱스 교체라면 alias 스왑으로 충분하다. <strong>모델 교체는 다르다</strong> — 질의를 만드는
+쪽도 같이 넘어가야 한다. 차원이 같은 모델이었다면 <strong>에러조차 나지 않고 조용히 엉뚱한
+결과</strong>를 돌려줬을 것이다. 애초에 384 → 768 조합을 고른 이유가 여기서 드러났다:
+<strong>시끄러운 실패가 조용한 오답보다 낫다.</strong>
+</p>
+</div>
+
+<div class="card">
+<h3>3.2 alias 로 검색하면 클라이언트가 9 초 갇힌다</h3>
+<p>
+모델 해석을 붙였는데 다운타임이 <strong>9,081 ms 로 그대로</strong>였다. 재해석은 11 ms 인데도.
+구간별로 보니 <strong>요청이 아예 없었다 — 에러조차.</strong> 검색 호출 자체가 블록됐다.
+</p>
+<p>
+단서는 에러 메시지의 <code>delegator ... for channel ...</code> 였다.
+<strong>pymilvus 는 컬렉션 메타를 이름으로 캐시한다.</strong> 그 이름이 alias 면 스왑 후에도
+낡은 정보를 들고 재시도·백오프에 들어간다.
+</p>
+<p>→ alias 는 <strong>해석만</strong> 하고 검색은 <strong>구체 컬렉션 이름</strong>으로 보낸다. 9 초 블록이 사라졌다.</p>
+</div>
+
+<div class="card">
+<h3>3.3 “다운타임 0”을 두 번 잘못 선언할 뻔했다</h3>
+<p>
+<strong>1차 아티팩트</strong> — 구체 컬렉션으로 고정했더니 다운타임 0, 오류 0 이 나왔다.
+그런데 <strong>재해석이 0 회</strong>였다. 워커는 v1 을 30초 내내 때렸고 alias 가 어디를
+가리키든 상관없었다. <strong>옛 컬렉션은 스왑 뒤에도 멀쩡히 응답한다</strong> — 에러가 신호가
+되어주지 않는다. 무중단이 아니라 그냥 옛 모델을 계속 쓴 것이다.
+</p>
+<p>
+<strong>2차 아티팩트</strong> — 주기적 재해석을 넣으니 232 회 + 다운타임 0. 그런데
+<strong>232번 물어봐도 대상이 안 바뀌었을 수 있다.</strong> 횟수는 “물어봤다”이지 “옮겼다”가 아니다.
+</p>
+<p>→ 요청마다 <strong>실제로 어느 컬렉션을 쳤는지</strong> 기록했다. 이것만이 증거다.</p>
+<p class="sub">교훈 — <strong>“에러가 없다”와 “동작했다”는 다르다.</strong></p>
+</div>
+
+<div class="card">
+<h3>3.4 쓰기 유실 검증에 음성 대조군을 뒀다</h3>
+<p>
+<code>--skip-catchup</code> 으로 <strong>일부러 유실을 만들어</strong> 검증기가 잡는지 먼저 확인했다.
+이 대조군이 버그 세 개를 드러냈고 <strong>셋 다 “유실 0”이라는 통과 판정을 냈다.</strong>
+</p>
+<ol>
+  <li><strong>docid 가 실행 간 충돌</strong> — 앞선 실행이 남긴 문서가 “있는 것”으로 잡혀 33건 중 7건만 누락으로 나왔다.</li>
+  <li><strong>alias 시작 상태 미보장</strong> — 앞 실행이 롤백 없이 끝나면 alias 가 v2 에 남고, 쓰기가 처음부터 v2 로 직행해 유실이 0 이 된다. 실제로 219건 전부 v2 로 갔다.</li>
+  <li><strong>검증 범위가 반대로 틀림</strong> — 전체 저널로 대조하면 롤백 후의 정상 쓰기까지 유실로 센다.</li>
+</ol>
+<div class="scroll">
+<table>
+  <thead><tr><th></th><th>따라잡기</th><th class="n">스왑 시점 저널</th><th class="n">유실</th></tr></thead>
+  <tbody>
+    <tr><td>음성 대조군</td><td>건너뜀</td><td class="n">38</td><td class="n bad">38 / 38 검출</td></tr>
+    <tr><td>본 시험</td><td>수행</td><td class="n">45</td><td class="n ok">0 / 45</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="sub">
+교훈 — <strong>“검증이 통과했다”와 “검증이 동작한다”도 다르다.</strong>
+통과를 주장하려면 실패를 만들어서 잡히는지 먼저 보여야 한다.
+</p>
+</div>
+
+<div class="card">
+<h3>3.5 인덱스 파레토 결론이 측정 때문에 세 번 바뀌었다</h3>
+<p>
+1차 결론은 “HNSW 가 유용 구간을 지배한다”였다. <strong>틀렸다.</strong>
+</p>
+<ul>
+  <li><strong>파라미터 공간이 불공정했다</strong> — SCANN 을 <code>reorder_k</code> 없이 재서 recall 상한이 0.687 에 막혀 있었다. 넣으니 <strong>0.8653</strong> 으로 뛰며 프론티어에 진입했다. IVF_PQ 도 <code>m=8</code> 하나만 재고 있었다(m=96 에서 0.2244 → 0.7038).</li>
+  <li><strong>QPS 가 재현되지 않았다</strong> — 두 독립 실행에서 recall 은 중앙 차이 0.000000 인데 QPS 는 중앙 15 %, 최대 110 % 차이였다. 이 시점에 “SCANN 이 19 % 빠르다”고 쓸 뻔했고, 그 19 % 는 노이즈였다.</li>
+  <li><strong>대표값이 틀렸다</strong> — 분포가 느린 쪽으로만 튀는 것을 확인하고(중앙값/최대값 0.934) best-of-N 으로 바꾸니 재현성이 <strong>2.6배</strong> 좋아졌다(중앙 6.2 % → 2.4 %).</li>
+</ul>
+<p>그 결과 <strong>노이즈 바닥 16 %</strong> 가 정해졌고, 아래 결론은 전부 이 기준으로 걸렀다.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>설정</th><th class="n">ANN recall@10</th><th class="n">QPS</th><th>판정</th></tr></thead>
+  <tbody>
+    <tr><td>scann nprobe=32, reorder_k=100</td><td class="n">0.8653</td><td class="n">20,612</td><td rowspan="2">구분 안 됨</td></tr>
+    <tr><td>hnsw M=16, ef=16</td><td class="n">0.8676</td><td class="n">18,427</td></tr>
+    <tr><td><strong>scann nprobe=128, reorder_k=500</strong></td><td class="n"><strong>0.9746</strong></td><td class="n"><strong>12,855</strong></td><td rowspan="2" class="ok">29 % 빠름 — 유의</td></tr>
+    <tr><td>hnsw M=32, ef=64</td><td class="n">0.9751</td><td class="n">9,951</td></tr>
+    <tr><td>hnsw M=32, ef=256</td><td class="n">0.9953</td><td class="n">3,559</td><td>recall 0.99+ 는 HNSW 뿐</td></tr>
+  </tbody>
+</table>
+</div>
+<figure>
+  <img src="../reports/pareto-dev-v1.png" alt="M1 인덱스 파레토 곡선 — 38개 설정">
+  <figcaption>왼쪽 전체 38개 설정, 오른쪽 결정 구간(recall ≥ 0.85) 확대. 막대는 반복 간 느린 쪽 폭.</figcaption>
+</figure>
+</div>
+
+<h2>4. 못 맞춘 것</h2>
+
+<h3>4.1 전량 재색인 4.6 시간 (목표 30 분)</h3>
+<div class="scroll">
+<table>
+  <thead><tr><th>티어</th><th class="n">차원</th><th class="n">소요</th><th class="n">속도</th></tr></thead>
+  <tbody>
+    <tr><td>dev 50 K</td><td class="n">384 (v1)</td><td class="n">182 s</td><td class="n">274 rows/s</td></tr>
+    <tr><td>dev 50 K</td><td class="n">768 (v2)</td><td class="n">597 s</td><td class="n">84 rows/s</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+병목은 Milvus 적재가 아니라 <strong>MPS 에서의 임베딩</strong>이다. 768 차원이 384 대비 3.3 배 느리다.
+단일 노트북에서 1.4 M × 768d 를 30 분에 끝내는 목표가 애초에 합리적이었는지부터
+재검토해야 한다. <strong>못 맞출 목표를 걸어두는 것보다 목표를 고치고 근거를 남기는 편이 낫다.</strong>
+</p>
+
+<h3>4.2 전환 창 p99 +94 % (목표 +15 %)</h3>
+<p>세 가지 비용을 섞으면 안 된다.</p>
+<ol>
+  <li><strong>전환 자체</strong> — 정확히 1 초 창(alias 재해석 주기)에 끝난다. 주기를 줄이면 더 짧아진다.</li>
+  <li><strong>768 차원의 비용</strong> — v2 정상 상태에서 p99 +19 %, 처리량 −24 %. 스왑이 아니라 모델을 바꾸기로 한 순간 받아들인 값이다.</li>
+  <li><strong>이 하네스의 인코더 락</strong> — 쓰기를 섞으면 p99 가 +436 % 까지 간다. 임베딩 인코더가 스레드 안전하지 않아 읽기·쓰기가 락을 공유하기 때문이다. <strong>Milvus 의 비용이 아니다.</strong></li>
+</ol>
+
+<h2>5. 이 수치를 읽을 때 알아야 할 것</h2>
+<ul>
+  <li><strong>단일 노트북 벤치다.</strong> 절대 수치는 의미가 약하다. 모든 결과는 동일 하드웨어·동일 데이터에서의 상대 비교로만 서술한다.</li>
+  <li><strong>저장 계층이 외장 USB 다.</strong> 4k 랜덤 읽기가 내장 대비 <strong>8.6배 느리다</strong>(4,057 vs 34,945 IOPS). 순차는 2.1배였다. ANN 그래프 탐색이 정확히 이 손해를 본다. <strong>DISKANN 에 대해서는 아무 순위도 매기지 않는다</strong> — 알고리즘이 아니라 스토리지를 쟀을 수 있다.</li>
+  <li><strong>파레토 축에 메모리가 없다.</strong> PQ 가 존재하는 이유는 recall 도 QPS 도 아닌 메모리인데 축에 없다. dev 티어는 77 MB 라 메모리 압박 자체가 없다. <strong>“PQ 가 나쁘다”가 아니라 “이 벤치는 PQ 를 평가할 수 없다”</strong> 가 맞다.</li>
+  <li><strong>골든셋이 213 질의뿐이다.</strong> MIRACL ko dev 가 그만큼이다. 모든 검색 품질 수치에 표준오차를 함께 낸다.</li>
+  <li><strong>티어마다 정답 밀도가 다르다.</strong> dev 50 K 는 1 %, 전량 1.4 M 은 0.036 %. 티어가 다른 recall 을 같은 표에 넣지 않는다.</li>
+  <li><strong>워킹셋이 작으면 디스크가 아니라 캐시를 잰다.</strong> 512 MiB 로 잡으면 랜덤 읽기가 8배 부풀려진다 — <code>--direct=1</code> 을 줘도 그렇다. 게스트의 O_DIRECT 는 macOS 호스트 캐시를 막지 못한다.</li>
+</ul>
+
+<h2>6. 재현</h2>
+<pre><code>make venv-full   # Python 3.12 + 의존성 (torch 포함)
+make up          # Milvus 3.0.1 Standalone
+make ingest      # MIRACL 적재 → 임베딩 → Milvus
+make eval        # qrels 기준 nDCG@10 · Recall@10
+make sweep       # M1 인덱스 38종 파레토
+make ingest-v2   # v2(e5-base 768d) 적재
+make shift       # M2 부하 중 무중단 스왑 + 롤백</code></pre>
+<p>
+캐시는 전부 저장소 안(<code>cache/</code>)으로 떨어진다. 기본값인 <code>~/.cache</code> 는
+내장 디스크이고, <strong>실제로 그것 때문에 내장을 0 바이트까지 채워 Docker VM 을
+read-only 로 만든 적이 있다.</strong>
+</p>
+
+<footer>
+VecShift · Apache-2.0 · 선택의 근거와 막힌 기록 29건은 저장소의 <code>DECISIONS.md</code> 에 있다.
+</footer>
+
+</main>
+</body>
+</html>
