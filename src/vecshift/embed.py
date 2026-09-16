@@ -42,7 +42,10 @@ class Encoder:
         self.device = device or pick_device()
         self.model = SentenceTransformer(self.id, device=self.device)
 
-        got = self.model.get_sentence_embedding_dimension()
+        # sentence-transformers 가 이름을 바꿨다. 신구 양쪽을 본다.
+        get_dim = getattr(self.model, "get_embedding_dimension", None) or \
+            self.model.get_sentence_embedding_dimension
+        got = get_dim()
         if got != self.dim:
             raise ValueError(
                 f"차원 불일치: 설정 {self.dim} vs 모델 {got} ({self.id}). "
