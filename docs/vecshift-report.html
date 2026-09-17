@@ -76,19 +76,19 @@
 </ul>
 
 <h2>2. 결과</h2>
-<p>기획서가 정한 성공 기준 8개 중 <strong>6개 달성, 2개 미달</strong>.</p>
+<p>기획서가 정한 성공 기준 8개 중 <strong>6개 달성 · 1개 미달 · 1개 판정 불가</strong>. 교체는 e5-small(384d) → <strong>bge-m3(1024d)</strong>.</p>
 <div class="scroll">
 <table>
   <thead><tr><th>기준</th><th>목표</th><th>실측</th><th>판정</th></tr></thead>
   <tbody>
     <tr><td>재색인 중 다운타임</td><td>0 s</td><td><strong>0</strong></td><td class="ok">달성</td></tr>
-    <tr><td>쓰기 유실</td><td>0 건</td><td><strong>0 / 45</strong></td><td class="ok">달성</td></tr>
-    <tr><td>부하 중 오류</td><td>0 건</td><td><strong>0 / 45,010</strong></td><td class="ok">달성</td></tr>
-    <tr><td>alias 스왑 소요</td><td>≤ 5 s</td><td><strong>281 ms</strong></td><td class="ok">달성</td></tr>
-    <tr><td>롤백 소요</td><td>≤ 10 s</td><td><strong>148 ms</strong></td><td class="ok">달성</td></tr>
-    <tr><td>품질 게이트</td><td>회귀 시 중단</td><td>통과 nDCG@10 0.8208 → 0.8455</td><td class="ok">달성</td></tr>
-    <tr><td>재색인 중 p99 증가</td><td>≤ +15 %</td><td>전환 1초 창 <strong>+94 %</strong>(읽기만) · <strong>+436 %</strong>(쓰기 동시)</td><td class="warn">미달</td></tr>
-    <tr><td>전량 재색인 소요</td><td>≤ 30 min</td><td>1.4 M 외삽 <strong>약 3.9 h</strong> (fp16) · 이 장비로는 도달 불가</td><td class="warn">미달</td></tr>
+    <tr><td>쓰기 유실</td><td>0 건</td><td><strong>0 / 48</strong></td><td class="ok">달성</td></tr>
+    <tr><td>부하 중 오류</td><td>0 건</td><td><strong>0 / 55,954</strong></td><td class="ok">달성</td></tr>
+    <tr><td>alias 스왑 소요</td><td>≤ 5 s</td><td><strong>70 ms</strong></td><td class="ok">달성</td></tr>
+    <tr><td>롤백 소요</td><td>≤ 10 s</td><td><strong>42 ms</strong></td><td class="ok">달성</td></tr>
+    <tr><td>품질 게이트</td><td>회귀 시 중단</td><td>통과 · <strong>유의한 개선</strong> nDCG@10 0.8890 → 0.9187 (대응 t=2.97)</td><td class="ok">달성</td></tr>
+    <tr><td>재색인 중 p99 증가</td><td>≤ +15 %</td><td>1초 창 해상도에서 노이즈와 구분 불가</td><td>판정 불가</td></tr>
+    <tr><td>전량 재색인 소요</td><td>≤ 30 min</td><td>1.4 M 외삽 <strong>약 11.8 h</strong> (bge-m3) · 이 장비로는 도달 불가</td><td class="warn">미달</td></tr>
   </tbody>
 </table>
 </div>
@@ -99,6 +99,45 @@
 </figure>
 
 <h2>3. 측정이 결론을 뒤집은 지점</h2>
+
+<div class="card">
+<h3>3.0 모델 품질 평가가 인덱스 오차에 오염돼 있었다</h3>
+<p>
+“인덱스 품질과 모델 품질을 섞지 말라”는 원칙을 문서에 적어두고, <strong>평가 코드는 HNSW 기본값(ef=16)으로
+검색하고 있었다.</strong> ANN 이 놓친 이웃만큼 점수가 깎였고, 깎인 양이 모델마다 달랐다.
+</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>모델</th><th class="n">ef 16 (기본)</th><th class="n">ef 64</th><th class="n">ef 256</th><th class="n">ef 1024</th></tr></thead>
+  <tbody>
+    <tr><td>e5-small (384d)</td><td class="n">0.8416</td><td class="n">0.8731</td><td class="n"><strong>0.8890</strong></td><td class="n">0.8886</td></tr>
+    <tr><td>e5-base (768d)</td><td class="n">0.8532</td><td class="n">0.8750</td><td class="n"><strong>0.8812</strong></td><td class="n">0.8812</td></tr>
+    <tr><td>bge-m3 (1024d)</td><td class="n">0.8989</td><td class="n">0.9187</td><td class="n"><strong>0.9187</strong></td><td class="n">0.9187</td></tr>
+  </tbody>
+</table>
+</div>
+<p>
+ef=16 에서는 e5-base 가 e5-small 보다 높지만 <strong>포화하면 순위가 뒤집힌다.</strong> 이 오류는 에러 없이
+네 개의 결정 기록에 퍼져 있었다 — 그중 가장 아픈 것은 <strong>“더 좋은 모델로 무중단 교체했다”는 W3 의 이야기가
+사실은 개선이 아니었다</strong>는 것이다(e5-base − e5-small = −0.0078, t=−0.85).
+</p>
+<p>
+발견한 계기는 bge-m3 를 추가해 같은 측정을 한 번 더 한 것이다. 같은 모델의 점수가 실행마다 0.8208 · 0.8291 · 0.8416 으로
+흔들렸다 — 인덱스를 수십 번 다시 지으며 HNSW 그래프가 달라졌고, ef=16 에서는 그 차이가 점수에 그대로 나왔다.
+</p>
+<p>→ 평가와 게이트를 ef=512 로 고치고, 세 모델 중 <strong>유의하게 나은 bge-m3</strong> 로 교체 대상을 바꿔 다시 쟀다.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>대응비교 (ef=512, 213 질의)</th><th class="n">nDCG@10 차이</th><th class="n">t</th></tr></thead>
+  <tbody>
+    <tr><td>bge-m3 − e5-base</td><td class="n"><strong>+0.0375 ± 0.0098</strong></td><td class="n">+3.83</td></tr>
+    <tr><td>bge-m3 − e5-small</td><td class="n">+0.0297 ± 0.0100</td><td class="n">+2.97</td></tr>
+    <tr><td>e5-base − e5-small</td><td class="n">−0.0078 ± 0.0091</td><td class="n">−0.85</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="sub">교훈 — <strong>원칙을 문서에 적는 것과 코드가 그 원칙을 지키는 것은 다르다.</strong></p>
+</div>
 
 <div class="card">
 <h3>3.1 alias 스왑만으로는 무중단이 되지 않는다</h3>
@@ -206,13 +245,14 @@
 
 <h2>4. 못 맞춘 것</h2>
 
-<h3>4.1 전량 재색인 — 목표 30 분, 최선 예측 3.0 시간</h3>
+<h3>4.1 전량 재색인 — 목표 30 분, bge-m3 로는 11.8 시간</h3>
 <div class="scroll">
 <table>
   <thead><tr><th>티어</th><th class="n">차원</th><th class="n">소요</th><th class="n">속도</th></tr></thead>
   <tbody>
     <tr><td>dev 50 K</td><td class="n">384 (v1)</td><td class="n">182 s</td><td class="n">274 rows/s</td></tr>
-    <tr><td>dev 50 K</td><td class="n">768 (v2)</td><td class="n">597 s</td><td class="n">84 rows/s</td></tr>
+    <tr><td>dev 50 K</td><td class="n">768 (e5-base)</td><td class="n">597 s</td><td class="n">84 rows/s</td></tr>
+    <tr><td>dev 50 K</td><td class="n"><strong>1024 (bge-m3)</strong></td><td class="n">1,520 s</td><td class="n"><strong>33 rows/s</strong></td></tr>
   </tbody>
 </table>
 </div>
@@ -225,13 +265,14 @@
     <tr><td>Milvus 적재만</td><td class="n">489.6</td></tr>
     <tr><td>batch 16 · 32 · 64 (fp32)</td><td class="n">107 · 108 · 108</td><td>64 이하는 평평한 천장 — 배치는 레버가 아니다</td></tr>
     <tr><td>batch 128 · 256 · 512 (fp32)</td><td class="n">96 · 77 · 53</td><td>키우면 오히려 느려진다</td></tr>
-    <tr><td>전 구간 fp32 → fp16</td><td class="n">83.8 → 98.7</td><td>+17.8 %, 품질 게이트 통과(nDCG −0.0013, t=−0.09)</td></tr>
+    <tr><td>전 구간 fp32 → fp16</td><td class="n">83.8 → 98.7</td><td>+17.8 %, 품질 차이 없음 (ef=512 에서 Recall 213/213 동일)</td></tr>
   </tbody>
 </table>
 </div>
 <p>
-가장 낙관적인 예측(fp16 + 임베딩·적재 병렬화)이 약 3.0 시간이다. <strong>30 분까지 5.9 배 모자란다.</strong>
-메우려면 임베딩 연산이 약 6 배 필요하다 — 전용 GPU, 분산 워커, 또는 더 작은 모델.
+e5-base 기준 가장 낙관적인 예측(fp16 + 병렬화)도 약 3.0 시간, 30 분까지 5.9 배 모자란다.
+그리고 <strong>품질이 유의하게 나은 bge-m3 는 e5-base 보다 재색인이 약 3 배 느리다</strong>(1.4 M 외삽 11.8 시간).
+더 나은 모델을 고를수록 목표는 멀어진다 — 품질과 재색인 시간의 교환이다.
 </p>
 <p>
 <strong>목표를 바꿔 “달성”으로 만들지 않았다.</strong> 30 분은 기획 단계에서 측정 없이 정한 숫자였다.
@@ -242,12 +283,18 @@
 큰 배치가 느린 이유를 “패딩 낭비”라 쓸 뻔했다(sentence-transformers 는 이미 길이순 정렬 후 배치를 나눈다).
 </p>
 
-<h3>4.2 전환 창 p99 +94 % (목표 +15 %)</h3>
+<h3>4.2 재색인 중 p99 증가 — 판정할 수 없다</h3>
+<p>
+읽기 전용 스왑에서 <strong>스왑 창(t=10)의 p99 는 10.50 ms 였는데, 스왑이 없던 t=6 은 11.26 ms 였다.</strong>
+1 초 창 하나의 p99 는 수천 요청 중 상위 1 % 몇십 개로 정해져서 아무 일 없어도 두 배씩 튄다.
+처음 e5-base 로 쟀을 때 실었던 “전환 창 +94 %” 도 창 하나를 기준선과 비교한 것이라 믿을 수 없는 수치였다.
+판정하려면 요청 단위 원시 표본을 남겨 전환 전후의 분포를 비교해야 한다 — 지금 하네스는 창별 요약만 저장한다.
+</p>
 <p>세 가지 비용을 섞으면 안 된다.</p>
 <ol>
-  <li><strong>전환 자체</strong> — 정확히 1 초 창(alias 재해석 주기)에 끝난다. 주기를 줄이면 더 짧아진다.</li>
-  <li><strong>768 차원의 비용</strong> — v2 정상 상태에서 p99 +19 %, 처리량 −24 %. 스왑이 아니라 모델을 바꾸기로 한 순간 받아들인 값이다.</li>
-  <li><strong>이 하네스의 인코더 락</strong> — 쓰기를 섞으면 p99 가 +436 % 까지 간다. 임베딩 인코더가 스레드 안전하지 않아 읽기·쓰기가 락을 공유하기 때문이다. <strong>Milvus 의 비용이 아니다.</strong></li>
+  <li><strong>전환 자체</strong> — 1 초 해상도에서 노이즈와 구분되지 않는다.</li>
+  <li><strong>1024 차원의 비용</strong> — bge-m3 정상 상태 p99 는 전후 e5-small 창보다 9~20 % 높다. 기준선이 실행 안에서 10 % 흔들리므로 0~20 % 사이라고만 말한다.</li>
+  <li><strong>이 하네스의 임베딩 경합</strong> — 쓰기를 섞으면 bge-m3 서비스 중 지연이 점점 나빠져 롤백 후에도 계속된다. 쓰기만 뺀 실행은 30 초 내내 평평했다. 쓰기 워커가 검색 워커와 같은 프로세스에서 bge-m3 로 임베딩하기 때문이다. <strong>Milvus 의 비용이 아니다.</strong></li>
 </ol>
 
 <h2>5. 이 수치를 읽을 때 알아야 할 것</h2>
@@ -275,7 +322,7 @@ read-only 로 만든 적이 있다.</strong>
 </p>
 
 <footer>
-VecShift · Apache-2.0 · 선택의 근거와 막힌 기록 29건은 저장소의 <code>DECISIONS.md</code> 에 있다.
+VecShift · Apache-2.0 · 선택의 근거와 막힌 기록 35건은 저장소의 <code>DECISIONS.md</code> 에 있다.
 </footer>
 
 </main>
