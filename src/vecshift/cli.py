@@ -301,13 +301,17 @@ def eval_(
     client.load_collection(collection_name=name)
 
     tag = "  [접두사 없음 — 어블레이션]" if no_query_prefix else ""
-    typer.echo(f"\n평가  collection={name}  split={split}  k={k}  질의 {len(topics)}개{tag}\n")
+    typer.echo(f"\n평가  collection={name}  split={split}  k={k}  질의 {len(topics)}개"
+               f"  ef={cfg.get('goldenset.search_ef', 512)}{tag}\n")
 
     qids = list(topics)
     qvecs = enc.queries([topics[q] for q in qids])
+    # 모델 품질을 재는 자리다. ANN 오차가 섞이지 않도록 포화된 ef 로 검색한다(D-034).
+    search_ef = int(cfg.get("goldenset.search_ef", 512))
     t0 = time.perf_counter()
     res = client.search(collection_name=name, data=[x.tolist() for x in qvecs],
-                        limit=k, output_fields=["docid"])
+                        limit=k, search_params={"params": {"ef": search_ef}},
+                        output_fields=["docid"])
     ms = (time.perf_counter() - t0) * 1000
 
     # pymilvus 는 기본키 필드명을 **그대로 최상위 키**로 돌려준다. PK 가 docid 이므로
@@ -327,7 +331,7 @@ def eval_(
     out = RESULTS / f"eval-{tier}-{variant}-{split}{suffix}.json"
     out.write_text(json.dumps(
         {"tier": tier, "variant": variant, "model": enc.id, "split": split, "k": k,
-         "collection": name, "query_prefix": enc.query_prefix,
+         "collection": name, "query_prefix": enc.query_prefix, "search_ef": search_ef,
          "search_ms_total": round(ms, 1), **m,
          # 질의별 점수를 남긴다 — 두 설정의 대응비교에 필요하다.
          "per_query": per_query(runs, rel, k)},
@@ -764,7 +768,10 @@ def _eval_scores(cfg, variant: str, split: str) -> dict:
     client = connect(cfg)
     name = coll.name_for(cfg, variant)
     client.load_collection(collection_name=name)
+    # 게이트는 모델 품질 판정이다 — 기본 ef(16)로 재면 ANN 오차의 차이를 모델 차이로
+    # 오판한다. 실제로 v1→v2 게이트의 +0.025 가 그랬다(D-034).
     res = client.search(collection_name=name, data=qvecs, limit=k,
+                        search_params={"params": {"ef": int(cfg.get("goldenset.search_ef", 512))}},
                         output_fields=["docid"])
     qids = list(topics)
     runs = {q: [h.get("docid") or h["entity"]["docid"] for h in hits]
