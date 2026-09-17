@@ -1057,6 +1057,14 @@ README 에 "Apache-2.0" 이라고 **적어두기만 했다.** 전문 파일이 �
   범인은 **Docker 의 VirtioFS 프로세스가 붙들고 있던 삭제된 파일 핸들**이었다
   (`lsof | grep fio.dat` 로 214,748,364,800 바이트 확인). Docker Desktop 을 재시작하니
   즉시 789 GiB 로 돌아왔다. 벤치 후 `df` 가 안 줄면 이걸 의심할 것.
+- **2026-09-17 · 노트북이 잠들면 Milvus 가 스스로 죽는다** — 세션을 다시 열었더니
+  standalone 이 `Exited (80)` 이었다. 벤치 탓을 먼저 의심했지만 마지막 로그는
+  `the session is expired without activing closing` 였다. **Docker VM 이 절전으로 멈춘 사이
+  etcd 세션 리스가 만료됐고, 깨어난 Milvus 가 자기 세션이 사라진 것을 보고 의도적으로 종료**한
+  것이다. etcd·MinIO 의 `Exited (255)` 는 그 뒤 Docker Desktop 재시작 때 난 것으로 순서가 다르다.
+  데이터는 외장 bind mount 라 `make up` 한 번으로 50,000 건 그대로 복구됐다.
+  → **벤치·스왑 측정 전에는 `make ps` 로 healthy 부터 확인한다.** 죽은 줄 모르고 돌리면
+  연결 실패가 측정 결과처럼 섞인다.
 - **미해결 · Docker 디스크 이미지가 내장에 있다** — 데이터는 외장 bind mount 로 피했지만
   이미지·빌드 캐시·named volume 은 내장을 쓴다. 내장 여유 6 GiB 로는 `docker pull`
   한 번에 같은 사고가 난다. W2 전에 옮긴다.
