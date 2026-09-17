@@ -33,6 +33,15 @@ embedding:
     metric: "COSINE"
     query_prefix: "query: "
     passage_prefix: "passage: "
+  # v2 와 같은 모델을 fp16 으로. 처리량 +21 % 의 대가로 품질이 얼마나 변하는지
+  # 게이트로 판정하기 위한 비교군이다(D-032). 질의·문서 양쪽 모두 fp16.
+  v2h:
+    id: "intfloat/multilingual-e5-base"
+    dim: 768
+    metric: "COSINE"
+    query_prefix: "query: "
+    passage_prefix: "passage: "
+    fp16: true
   batch_size: 64
   normalize: true
 

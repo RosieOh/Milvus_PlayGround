@@ -41,6 +41,11 @@ class Encoder:
         self.normalize = normalize
         self.device = device or pick_device()
         self.model = SentenceTransformer(self.id, device=self.device)
+        # fp16 은 MPS 에서 약 21 % 빠르지만 벡터가 미세하게 바뀐다 — top-10 이웃이
+        # 98.3 % 만 겹친다. 그래서 기본은 끄고, 쓰려면 variant 에 명시한다(D-032).
+        self.fp16 = bool(variant.get("fp16", False))
+        if self.fp16:
+            self.model = self.model.half()
 
         # sentence-transformers 가 이름을 바꿨다. 신구 양쪽을 본다.
         get_dim = getattr(self.model, "get_embedding_dimension", None) or \
