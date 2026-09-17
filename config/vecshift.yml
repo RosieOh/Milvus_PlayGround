@@ -42,6 +42,18 @@ embedding:
     query_prefix: "query: "
     passage_prefix: "passage: "
     fp16: true
+  # D-005 의 스트레치 후보. bge-m3 는 질의에 instruction/접두사를 붙이지 않는다
+  # (모델카드: "no longer requires adding instructions to the queries").
+  # 기본 max_seq_length 는 8192 인데 e5 와 공정하게 비교하려고 512 로 맞춘다.
+  v3:
+    id: "BAAI/bge-m3"
+    dim: 1024
+    metric: "COSINE"
+    query_prefix: ""
+    passage_prefix: ""
+    max_seq_length: 512
+    # 실측: batch 8·16 = 32.3 rows/s, 32 = 28.1, 64 = 22.4. 16 이하가 평평한 천장이다.
+    batch_size: 16
   batch_size: 64
   normalize: true
 
