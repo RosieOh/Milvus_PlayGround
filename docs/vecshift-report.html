@@ -88,7 +88,7 @@
     <tr><td>롤백 소요</td><td>≤ 10 s</td><td><strong>148 ms</strong></td><td class="ok">달성</td></tr>
     <tr><td>품질 게이트</td><td>회귀 시 중단</td><td>통과 nDCG@10 0.8208 → 0.8455</td><td class="ok">달성</td></tr>
     <tr><td>재색인 중 p99 증가</td><td>≤ +15 %</td><td>전환 1초 창 <strong>+94 %</strong>(읽기만) · <strong>+436 %</strong>(쓰기 동시)</td><td class="warn">미달</td></tr>
-    <tr><td>전량 재색인 소요</td><td>≤ 30 min</td><td>1.4 M 외삽 <strong>약 4.6 h</strong></td><td class="warn">미달</td></tr>
+    <tr><td>전량 재색인 소요</td><td>≤ 30 min</td><td>1.4 M 외삽 <strong>약 3.9 h</strong> (fp16) · 이 장비로는 도달 불가</td><td class="warn">미달</td></tr>
   </tbody>
 </table>
 </div>
@@ -206,7 +206,7 @@
 
 <h2>4. 못 맞춘 것</h2>
 
-<h3>4.1 전량 재색인 4.6 시간 (목표 30 분)</h3>
+<h3>4.1 전량 재색인 — 목표 30 분, 최선 예측 3.0 시간</h3>
 <div class="scroll">
 <table>
   <thead><tr><th>티어</th><th class="n">차원</th><th class="n">소요</th><th class="n">속도</th></tr></thead>
@@ -216,10 +216,30 @@
   </tbody>
 </table>
 </div>
+<p>레버를 전부 쟀다. 결론은 <strong>이 장비로는 도달 불가</strong>다.</p>
+<div class="scroll">
+<table>
+  <thead><tr><th>측정</th><th class="n">rows/s</th><th>의미</th></tr></thead>
+  <tbody>
+    <tr><td>임베딩만 (batch=64 fp32)</td><td class="n">108.3</td><td rowspan="2">적재가 4.5배 빠르다 — 병목은 임베딩</td></tr>
+    <tr><td>Milvus 적재만</td><td class="n">489.6</td></tr>
+    <tr><td>batch 16 · 32 · 64 (fp32)</td><td class="n">107 · 108 · 108</td><td>64 이하는 평평한 천장 — 배치는 레버가 아니다</td></tr>
+    <tr><td>batch 128 · 256 · 512 (fp32)</td><td class="n">96 · 77 · 53</td><td>키우면 오히려 느려진다</td></tr>
+    <tr><td>전 구간 fp32 → fp16</td><td class="n">83.8 → 98.7</td><td>+17.8 %, 품질 게이트 통과(nDCG −0.0013, t=−0.09)</td></tr>
+  </tbody>
+</table>
+</div>
 <p>
-병목은 Milvus 적재가 아니라 <strong>MPS 에서의 임베딩</strong>이다. 768 차원이 384 대비 3.3 배 느리다.
-단일 노트북에서 1.4 M × 768d 를 30 분에 끝내는 목표가 애초에 합리적이었는지부터
-재검토해야 한다. <strong>못 맞출 목표를 걸어두는 것보다 목표를 고치고 근거를 남기는 편이 낫다.</strong>
+가장 낙관적인 예측(fp16 + 임베딩·적재 병렬화)이 약 3.0 시간이다. <strong>30 분까지 5.9 배 모자란다.</strong>
+메우려면 임베딩 연산이 약 6 배 필요하다 — 전용 GPU, 분산 워커, 또는 더 작은 모델.
+</p>
+<p>
+<strong>목표를 바꿔 “달성”으로 만들지 않았다.</strong> 30 분은 기획 단계에서 측정 없이 정한 숫자였다.
+목표도 측정 전에는 가설이다.
+</p>
+<p class="sub">
+측정하며 두 번 틀릴 뻔했다. 배치를 키우는 쪽만 재서 “64가 최적”이라 쓸 뻔했고(아래쪽을 재니 천장이었다),
+큰 배치가 느린 이유를 “패딩 낭비”라 쓸 뻔했다(sentence-transformers 는 이미 길이순 정렬 후 배치를 나눈다).
 </p>
 
 <h3>4.2 전환 창 p99 +94 % (목표 +15 %)</h3>
